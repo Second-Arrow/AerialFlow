@@ -1,5 +1,5 @@
 //
-//  AerialFlowTests.swift
+//  AppStateTests.swift
 //  AerialFlowTests
 //
 //  Created by Floris Robbemont on 02/01/2026.
@@ -23,10 +23,13 @@ struct AppStateTests {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let state = await MainActor.run { AppState(userDefaults: defaults) }
+        let state = await MainActor.run {
+            // Safe: we successfully created this suite above.
+            AppState(userDefaults: UserDefaults(suiteName: suiteName)!)
+        }
         let initial = await MainActor.run { state.isPaused }
 
-        await MainActor.run { state.togglePaused() }
+        await MainActor.run { state.setRotationEnabled(state.isPaused) }
         let toggled = await MainActor.run { state.isPaused }
 
         #expect(toggled != initial)
@@ -41,15 +44,19 @@ struct AppStateTests {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let state = await MainActor.run { AppState(userDefaults: defaults) }
+        let state = await MainActor.run {
+            // Safe: we successfully created this suite above.
+            AppState(userDefaults: UserDefaults(suiteName: suiteName)!)
+        }
         let initial = await MainActor.run { state.isPaused }
 
         await MainActor.run {
-            state.togglePaused()
-            state.togglePaused()
+            state.setRotationEnabled(state.isPaused)
+            state.setRotationEnabled(state.isPaused)
         }
         let final = await MainActor.run { state.isPaused }
 
         #expect(final == initial)
     }
 }
+

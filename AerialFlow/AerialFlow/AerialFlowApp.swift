@@ -13,14 +13,24 @@ struct AerialFlowApp: App {
     @StateObject private var appState = AppState()
 
     var body: some Scene {
-        MenuBarExtra("AerialFlow", systemImage: "sparkles.tv") {
+        MenuBarExtra {
+            Text(appState.statusLine)
+                .font(.footnote)
+                .foregroundStyle(
+                    appState.lastErrorMessage == nil
+                        ? AnyShapeStyle(.secondary)
+                        : AnyShapeStyle(Color.red)
+                )
+
+            Divider()
+
             Button("Next Aerial") {
-                // UI-only scaffolding for now.
+                Task { await appState.nextAerial() }
             }
-            .disabled(true)
+            .disabled(appState.isBusy)
 
             Button(appState.isPaused ? "Continue" : "Pause") {
-                appState.togglePaused()
+                appState.setRotationEnabled(appState.isPaused)
             }
 
             Divider()
@@ -34,6 +44,9 @@ struct AerialFlowApp: App {
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
             }
+        } label: {
+            let icon = appState.isPaused ? "pause.fill" : "airplane"
+            Label("AerialFlow", systemImage: icon)
         }
 
         Settings {

@@ -118,3 +118,9 @@ Temporary Items
 
 
 .derivedData/
+
+.home/
+
+.tmp/
+
+.xcresult/

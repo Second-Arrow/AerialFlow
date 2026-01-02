@@ -39,12 +39,28 @@ Optimize for:
 - **Error handling**
   - Fail **early and clearly** with informative errors.
   - Catch errors only where you can add context, handle, or translate them.
-  - Avoid `try!` / `as!` in production code. Avoid `fatalError()` except for truly unreachable programmer errors.
+  - Avoid `try!` / `as!` / force unwraps (`!`) in production code. Use `guard let` / `if let` instead.
+  - Avoid `fatalError()` except for truly unreachable programmer errors.
 
 - **Concurrency / performance**
   - Prefer Swift Concurrency (`async/await`) over ad-hoc threading.
   - Bound concurrency (cap in-flight work), and add **timeouts** around external calls where appropriate.
   - Respect cancellation (`Task.isCancelled`, cooperative cancellation) and avoid unstructured fire-and-forget tasks.
+  - Use `actor` for types that need mutable cached state and `Sendable` conformance. Do not use `final class: Sendable` with mutable state.
+
+- **Test code separation**
+  - Test fakes, mocks, and stubs must live in the **test target only** (e.g., `AerialFlowTests/`), never in production code.
+  - Keep a `TestHelpers.swift` in the test target for shared fakes.
+
+- **File hygiene**
+  - Only create files when you are implementing them. Do not create empty placeholder files for future milestones.
+  - Use injected dependencies consistently. Do not bypass injected protocols with direct calls (e.g., `FileManager.default` when a `FileSystem` is injected).
+  - Delete test harnesses, scaffolds, and wrapper types immediately when they become unused. Do not leave "convenience" wrappers around if they add no value.
+
+- **Dependency injection consistency**
+  - Use the established `FileSystem` protocol (in `System/FileSystem.swift`) for all file operations in `Core/` and `System/`. Do not mix `FileManager` directly with `FileSystem` in the same component.
+  - When a component needs file I/O, inject `FileSystem` rather than `FileManager` directly.
+  - Static factory defaults (e.g., `defaultIndexPlistURL`) may use `FileManager.default` since they run at construction time, but all runtime I/O should go through the injected `FileSystem`.
 
 - **Structure**
   - Keep modules acyclic and cohesive.
@@ -79,7 +95,7 @@ Optimize for:
 ## Ten Non-Negotiables (the rails)
 
 1. **Single path:** When replacing a code path (service, UI flow, controller), **remove/redirect legacy** in the same change.
-2. **No placeholders:** Reject/replace `TODO/FIXME/HACK/Not implemented/fatalError("TODO")` and half-stubs on main flows.
+2. **No placeholders:** Reject/replace `TODO/FIXME/HACK/Not implemented/fatalError("TODO")` and half-stubs on main flows. Do not create empty files as placeholders for future work.
 3. **Spec/source first:** Define or update:
    - public type signatures (structs/enums/protocols),
    - models,
@@ -177,6 +193,14 @@ xcodebuild test \
   -destination 'platform=macOS' \
   -derivedDataPath ./.derivedData \
   -only-testing:AerialFlowTests || true
+
+# If `xcodebuild test` fails in Cursor due to sandbox restrictions (common symptoms):
+# - "Failed to prevent system sleep during UI testing. Error code: -536870199"
+# - "Error opening log file ... Operation not permitted"
+#
+# Then rerun the exact same command **outside the sandbox**.
+# In Cursor agent tool calls this means requesting `required_permissions: ['all']`
+# for the test command. Alternatively, run the command in your local Terminal or Xcode.
 
 # Optional: SwiftPM (only if the repo is configured for it)
 swift test || true
