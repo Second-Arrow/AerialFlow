@@ -25,7 +25,7 @@ A small macOS utility that fixes the Aerials screensaver bug where backgrounds d
 
 ### Option 1: Download Pre-built Release
 
-1. Visit the [Releases](https://github.com/yourusername/AerialFlow/releases) page
+1. Visit the [Releases](https://github.com/second-arrow/AerialFlow/releases) page
 2. Download the latest `.dmg` file
 3. Open the downloaded file and drag `AerialFlow.app` to your Applications folder
 4. Open AerialFlow from Applications (you may need to allow it in System Settings > Privacy & Security)
@@ -34,7 +34,7 @@ A small macOS utility that fixes the Aerials screensaver bug where backgrounds d
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/AerialFlow.git
+   git clone https://github.com/second-arrow/AerialFlow.git
    cd AerialFlow
    ```
 
@@ -177,11 +177,11 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 
 This project is open source and available under the [MIT License](LICENSE).
 
-Copyright (c) 2026 [Second Arrow](https://github.com/secondarrow)
+Copyright (c) 2026 [Second Arrow](https://github.com/second-arrow)
 
 ## Acknowledgments
 
-- [Second Arrow](https://github.com/secondarrow) - Development organization
+- [Second Arrow](https://github.com/second-arrow) - Development organization
 - Apple for the beautiful Aerial screensaver videos
 - The macOS community for inspiration and feedback
 
@@ -189,7 +189,7 @@ Copyright (c) 2026 [Second Arrow](https://github.com/secondarrow)
 
 If you encounter any issues or have questions:
 
-1. Check the [Issues](https://github.com/yourusername/AerialFlow/issues) page
+1. Check the [Issues](https://github.com/second-arrow/AerialFlow/issues) page
 2. Open a new issue with:
    - macOS version
    - AerialFlow version
