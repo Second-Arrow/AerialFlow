@@ -160,11 +160,23 @@ Outline a **commit sequence** (small, ordered):
 Run and fix until clean (adapt commands if the repo uses different tools, but preserve the spirit):
 
 ```bash
+# Ensure full Xcode is selected (not Command Line Tools)
+# If xcodebuild errors with: "requires Xcode, but active developer directory ... CommandLineTools"
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -license accept
+
 # Tests (Xcode)
+# IMPORTANT (Cursor/sandbox): derived data + logs under ~/Library may fail with "Operation not permitted".
+# Use a DerivedData path inside the repo workspace.
+#
+# IMPORTANT: UI tests may fail in constrained environments due to sleep assertions / simulator services.
+# Prefer running unit tests only unless you explicitly need UI coverage.
 xcodebuild test \
   -project AerialFlow/AerialFlow.xcodeproj \
   -scheme AerialFlow \
-  -destination 'platform=macOS' || true
+  -destination 'platform=macOS' \
+  -derivedDataPath ./.derivedData \
+  -only-testing:AerialFlowTests || true
 
 # Optional: SwiftPM (only if the repo is configured for it)
 swift test || true

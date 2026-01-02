@@ -6,12 +6,39 @@
 //
 
 import SwiftUI
+import AppKit
 
 @main
 struct AerialFlowApp: App {
+    @StateObject private var appState = AppState()
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        MenuBarExtra("AerialFlow", systemImage: "sparkles.tv") {
+            Button("Next Aerial") {
+                // UI-only scaffolding for now.
+            }
+            .disabled(true)
+
+            Button(appState.isPaused ? "Continue" : "Pause") {
+                appState.togglePaused()
+            }
+
+            Divider()
+
+            SettingsLink {
+                Text("Open Settings")
+            }
+
+            Divider()
+
+            Button("Quit") {
+                NSApplication.shared.terminate(nil)
+            }
+        }
+
+        Settings {
+            SettingsView()
+                .environmentObject(appState)
         }
     }
 }
