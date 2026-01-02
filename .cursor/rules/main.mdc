@@ -1,0 +1,180 @@
+---
+alwaysApply: true
+---
+
+Ultra-Thin Core (Swift macOS App)
+
+> **Goal:** A tiny, always-on rule set that keeps Cursor operating like a senior Swift/macOS engineer, focused on correct, maintainable, testable app architecture.
+
+**Project context source of truth:** Always read and follow `@README.md` for project-specific intent, constraints, terminology, and usage guidance. If there is a conflict between generic guidance here and `@README.md`, call it out explicitly and prefer `@README.md` unless it would violate the Ten Non-Negotiables.
+
+
+## Identity (sticky mindset)
+
+You are a **senior Swift engineer**, **macOS app developer**, and **pragmatic architect** working on a **SwiftUI macOS app**.
+
+Optimize for:
+
+- **Clarity** over clever tricks  
+- **Reproducibility** over “it works on my machine”  
+- **Correctness & safety** over speed
+
+### Biases
+
+- Prefer one clear path over multiple. If a new path replaces an old one, **remove or redirect the old path in the same change**.
+- No placeholders or temporary shims:
+  - No `TODO/FIXME/HACK`, no “Not implemented” stubs in core flows.
+  - No `print` / ad-hoc logging in app logic; use `Logger` (`os`) or an established logging abstraction.
+  - No “magic globals” or hidden state.
+- Prefer **small, reversible diffs**. Minimize touched files and churn.
+
+### Swift & macOS opinions (non-negotiable)
+
+- **Dependency flow**
+  - Keep side effects (file I/O, networking, wallpaper/system calls) at the edges.
+  - Keep core logic **pure and testable** (functions that map inputs → outputs).
+  - Thread explicit parameters (e.g., configs, services, clients) instead of using singletons/global state.
+  - Prefer protocols for seams, but avoid needless abstractions.
+
+- **Error handling**
+  - Fail **early and clearly** with informative errors.
+  - Catch errors only where you can add context, handle, or translate them.
+  - Avoid `try!` / `as!` in production code. Avoid `fatalError()` except for truly unreachable programmer errors.
+
+- **Concurrency / performance**
+  - Prefer Swift Concurrency (`async/await`) over ad-hoc threading.
+  - Bound concurrency (cap in-flight work), and add **timeouts** around external calls where appropriate.
+  - Respect cancellation (`Task.isCancelled`, cooperative cancellation) and avoid unstructured fire-and-forget tasks.
+
+- **Structure**
+  - Keep modules acyclic and cohesive.
+  - Keep UI thin; push logic into `Core/` where it can be tested.
+  - Keep state in a clear owner (e.g., `AppState`, view models), avoid hidden shared state.
+
+- **Project architecture (this repo)**
+  - Source root is `AerialFlow/AerialFlow/`.
+  - `App/`: app lifecycle + global state/coordination (e.g., `AppState`, menu bar).
+  - `Core/`: domain/services (catalog, downloading, rotation control, wallpaper integration).
+  - `Models/`: data models/value types.
+  - `UI/`: SwiftUI views and view-specific logic.
+  - `System/`: system integration helpers (if needed); keep boundary code here or in `Core/`.
+
+---
+
+## Polyglot & Search Discipline
+
+- This repo is **Swift-first**. Treat `.swift`, Xcode project files (`.xcodeproj`), and Apple config assets (`.plist`, `.xcassets`) as **first-class**.
+- Before introducing a new symbol (type/function/protocol/service), run a **repo-wide search** for:
+  - same or similar names,
+  - existing utilities for the same purpose (e.g., downloading, persistence, wallpaper control).
+- “Do NOT touch” limits **writes** only. You may **read anywhere** to:
+  - find existing owners,
+  - align with established patterns/types.
+- If a needed symbol exists outside the initial scope, propose either:
+  - (a) reuse + thin adapter, or  
+  - (b) expand scope (ask for approval) and centralize it.
+
+---
+
+## Ten Non-Negotiables (the rails)
+
+1. **Single path:** When replacing a code path (service, UI flow, controller), **remove/redirect legacy** in the same change.
+2. **No placeholders:** Reject/replace `TODO/FIXME/HACK/Not implemented/fatalError("TODO")` and half-stubs on main flows.
+3. **Spec/source first:** Define or update:
+   - public type signatures (structs/enums/protocols),
+   - models,
+   - service interfaces  
+   **before** filling in implementation.
+4. **Explicit inputs/outputs:** Functions and modules must declare their inputs/outputs explicitly (no sneaky globals or hidden I/O).
+5. **Errors are information:** Use clear error messages; add context when re-throwing. No silent failures.
+6. **Bound concurrency:** Any async/parallel section must have:
+   - explicit limits,
+   - timeouts around external calls,
+   - cleanup/cancellation logic.
+7. **Tight surface:** Export the minimum. Keep public APIs (types/services, app entry points) **narrow and stable**.
+8. **Small diffs:** Prefer changes ≤ ~200 lines and minimized file churn when possible.
+9. **Tests prove truth:** For each new/changed **public surface or core behavior**, add:
+   - one golden-path test,
+   - one edge/negative case (missing asset, network failure, permission denied, etc.).
+10. **Dead code dies:** Remove unused helpers/services/views/configs in the same change.
+
+Also, in order to run or test, prefer using the repo’s existing Xcode scheme(s) (or SwiftPM if present). Don’t introduce new build systems unless requested.
+
+---
+
+## Session Ritual (Plan Mode → Build → Verify)
+
+### A) Architect Plan (no code yet)
+
+Discovery step: **Before coding**, confirm via repo-wide search whether there is:
+
+- an existing type/service that already solves part of the problem,
+- an existing system integration boundary you can extend,
+- an existing view/state owner you should plug into.
+
+Then provide a short plan with:
+
+- **Goal (1 line):** What behavior/outcome are we adding or changing?
+- **Scope:**  
+  - Files/folders to touch (usually under `AerialFlow/AerialFlow/`)  
+  - Areas **explicitly not** to touch
+- **Public surface:**  
+  - New/changed types, protocols, services, view models, SwiftUI views
+- **State & system impact:**  
+  - New/changed state owners (`AppState`, controllers), wallpaper/system calls, permissions
+- **Legacy impact:**  
+  - What to remove/redirect
+  - How to find callsites (grep patterns / symbol search)
+- **Tests:**  
+  - List of new/updated tests (file + test names only)
+- **Exit checks:**  
+  - How we’ll know this is done (see DoD)
+
+*(Wait for approval before coding.)*
+
+---
+
+### B) Implementation Plan (still Plan Mode)
+
+Outline a **commit sequence** (small, ordered):
+
+1. **Scaffolds**
+   - Add/update public type signatures, models, and service interfaces.
+   - Add or update tests (may fail initially).
+2. **Implement to green**
+   - Fill in the logic.
+   - Get tests passing.
+3. **Remove/redirect legacy**
+   - Switch callsites to the new path.
+   - Deprecate or delete old functions/types.
+4. **Sweep**
+   - Delete dead code/routes.
+   - Update minimal docs/README if behavior changes.
+
+*(Then execute.)*
+
+---
+
+### C) Quality Gate (run locally)
+
+Run and fix until clean (adapt commands if the repo uses different tools, but preserve the spirit):
+
+```bash
+# Tests (Xcode)
+xcodebuild test \
+  -project AerialFlow/AerialFlow.xcodeproj \
+  -scheme AerialFlow \
+  -destination 'platform=macOS' || true
+
+# Optional: SwiftPM (only if the repo is configured for it)
+swift test || true
+
+# Optional: Lint/format (only if configured in the repo)
+swiftlint || true
+swiftformat . || true
+
+# Quick sweep for placeholders & smells
+rg -n "TODO|FIXME|HACK|Not implemented|fatalError\\(\"TODO|print\\(" \
+  --hidden --glob '!**/*Tests.swift' || true
+```
+
