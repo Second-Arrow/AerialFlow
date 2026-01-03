@@ -13,7 +13,7 @@ actor AerialCatalog {
         var errorDescription: String? {
             switch self {
             case .fileNotFound(let url):
-                return "Aerial catalog not found at \(url.path)"
+                return "Aerial catalog not found at \(url.path). This file is normally provided by macOS (idleassetsd)."
             case .decodeFailed(let url, let underlying):
                 return "Failed to decode Aerial catalog at \(url.path): \(underlying.localizedDescription)"
             case .attributesFailed(let url, let underlying):
@@ -37,7 +37,7 @@ actor AerialCatalog {
 
     init(
         fileURL: URL = URL(fileURLWithPath: "/Library/Application Support/com.apple.idleassetsd/Customer/entries.json"),
-        fileSystem: FileSystem = DefaultFileSystem()
+        fileSystem: FileSystem
     ) {
         self.fileURL = fileURL
         self.fileSystem = fileSystem

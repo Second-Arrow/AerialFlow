@@ -24,8 +24,8 @@ struct AppStateTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let state = await MainActor.run {
-            // Safe: we successfully created this suite above.
-            AppState(userDefaults: UserDefaults(suiteName: suiteName)!)
+            let dependencies = AppDependencies.live(userDefaults: defaults)
+            return AppState(dependencies: dependencies, userDefaults: defaults)
         }
         let initial = await MainActor.run { state.isPaused }
 
@@ -45,8 +45,8 @@ struct AppStateTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let state = await MainActor.run {
-            // Safe: we successfully created this suite above.
-            AppState(userDefaults: UserDefaults(suiteName: suiteName)!)
+            let dependencies = AppDependencies.live(userDefaults: defaults)
+            return AppState(dependencies: dependencies, userDefaults: defaults)
         }
         let initial = await MainActor.run { state.isPaused }
 

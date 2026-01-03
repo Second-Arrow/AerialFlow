@@ -23,17 +23,6 @@ struct CommandResult: Sendable, Equatable {
 }
 
 final class ProcessCommandRunner: CommandRunner {
-    enum RunnerError: LocalizedError {
-        case nonZeroExit(command: Command, exitCode: Int32, stderr: String)
-
-        var errorDescription: String? {
-            switch self {
-            case .nonZeroExit(let command, let exitCode, let stderr):
-                return "Command failed (\(exitCode)): \(command.launchPath) \(command.arguments.joined(separator: " "))\n\(stderr)"
-            }
-        }
-    }
-
     init() {}
 
     func run(_ command: Command) throws -> CommandResult {

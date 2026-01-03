@@ -36,6 +36,13 @@ Optimize for:
   - Thread explicit parameters (e.g., configs, services, clients) instead of using singletons/global state.
   - Prefer protocols for seams, but avoid needless abstractions.
 
+- **Dependency management (Composition Root pattern)**
+  - Create dependencies once in a single `AppDependencies` composition root.
+  - Pass dependencies via initializers; coordinators (e.g., `AppState`) must not create services internally.
+  - Stateless services should be shared (avoid recreating `AssetPicker`, `AssetURLSelector`, etc.).
+  - Pass settings per operation; services should not capture settings at construction.
+  - For testing, override `AppDependencies` fields (or provide factory helpers) rather than reaching for globals.
+
 - **Error handling**
   - Fail **early and clearly** with informative errors.
   - Catch errors only where you can add context, handle, or translate them.
@@ -61,6 +68,8 @@ Optimize for:
   - Use the established `FileSystem` protocol (in `System/FileSystem.swift`) for all file operations in `Core/` and `System/`. Do not mix `FileManager` directly with `FileSystem` in the same component.
   - When a component needs file I/O, inject `FileSystem` rather than `FileManager` directly.
   - Static factory defaults (e.g., `defaultIndexPlistURL`) may use `FileManager.default` since they run at construction time, but all runtime I/O should go through the injected `FileSystem`.
+  - Default values must match reference implementations when applicable (e.g., timeouts/intervals).
+  - Settings-to-UI consistency: every setting in `AppSettings` should have a corresponding UI control when exposed to users.
 
 - **Structure**
   - Keep modules acyclic and cohesive.

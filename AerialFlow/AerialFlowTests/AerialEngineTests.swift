@@ -25,6 +25,7 @@ struct AerialEngineTests {
         let qualityPreference: VideoQualityPreference
         let downloadTimeout: TimeInterval
         let indexPlistURL: URL
+        let backupRetentionCount: Int
     }
 
     private enum TestError: Error {
@@ -109,9 +110,10 @@ struct AerialEngineTests {
 
     private struct FakeStoreEditor: WallpaperApplying {
         let recorder: Recorder
-        func applyAerialAssetID(_ assetID: String, indexPlistURL: URL) throws -> WallpaperStoreEditor.ApplyResult {
+        func applyAerialAssetID(_ assetID: String, indexPlistURL: URL, backupRetentionCount: Int) throws -> WallpaperStoreEditor.ApplyResult {
             _ = assetID
             _ = indexPlistURL
+            _ = backupRetentionCount
             recorder.record("apply")
             return .init(updatedProviderNodeCount: 2, backupURL: URL(fileURLWithPath: "/tmp/Index.plist.bak"))
         }
@@ -136,24 +138,25 @@ struct AerialEngineTests {
 
         let engine = AerialEngine(
             catalog: FakeCatalog(snapshot: catalogSnapshot),
-            categoryResolver: CategoryResolver(fileSystem: InMemoryFileSystem(), bundleRootURL: URL(fileURLWithPath: "/Bundle", isDirectory: true)),
             picker: FakePicker(recorder: recorder),
             urlSelector: FakeURLSelector(recorder: recorder, url: URL(string: "https://example.com/a.mov")!),
             downloader: FakeDownloader(recorder: recorder),
             storeEditor: FakeStoreEditor(recorder: recorder),
             reloader: FakeReloader(recorder: recorder),
+            stateStore: state,
+            now: { Date(timeIntervalSince1970: 1) }
+        )
+
+        _ = try await engine.next(
             settings: Settings(
                 excludedCategoryIDs: [],
                 randomMode: false,
                 qualityPreference: .prefer4k,
                 downloadTimeout: 5,
-                indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist")
-            ),
-            stateStore: state,
-            now: { Date(timeIntervalSince1970: 1) }
+                indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist"),
+                backupRetentionCount: 10
+            )
         )
-
-        _ = try await engine.next(manual: true)
 
         let events = recorder.snapshot()
         #expect(events == ["pick", "url", "download", "apply", "reload"])
@@ -168,25 +171,26 @@ struct AerialEngineTests {
 
         let engine = AerialEngine(
             catalog: FailingCatalog(),
-            categoryResolver: CategoryResolver(fileSystem: InMemoryFileSystem(), bundleRootURL: URL(fileURLWithPath: "/Bundle", isDirectory: true)),
             picker: FakePicker(recorder: recorder),
             urlSelector: FakeURLSelector(recorder: recorder, url: URL(string: "https://example.com/a.mov")!),
             downloader: FakeDownloader(recorder: recorder),
             storeEditor: FakeStoreEditor(recorder: recorder),
             reloader: FakeReloader(recorder: recorder),
-            settings: Settings(
-                excludedCategoryIDs: [],
-                randomMode: false,
-                qualityPreference: .prefer4k,
-                downloadTimeout: 5,
-                indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist")
-            ),
             stateStore: state,
             now: { Date(timeIntervalSince1970: 1) }
         )
 
         do {
-            _ = try await engine.next(manual: true)
+            _ = try await engine.next(
+                settings: Settings(
+                    excludedCategoryIDs: [],
+                    randomMode: false,
+                    qualityPreference: .prefer4k,
+                    downloadTimeout: 5,
+                    indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist"),
+                    backupRetentionCount: 10
+                )
+            )
             #expect(Bool(false), "Expected catalog load failure to be thrown")
         } catch {
             // Expected: catalog failure propagates

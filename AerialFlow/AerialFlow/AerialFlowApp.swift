@@ -10,7 +10,12 @@ import AppKit
 
 @main
 struct AerialFlowApp: App {
-    @StateObject private var appState = AppState()
+    @StateObject private var appState: AppState
+
+    init() {
+        let dependencies = AppDependencies.live()
+        _appState = StateObject(wrappedValue: AppState(dependencies: dependencies))
+    }
 
     var body: some Scene {
         MenuBarExtra {

@@ -1,4 +1,5 @@
 import SwiftUI
+import KeyboardShortcuts
 
 struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
@@ -10,6 +11,118 @@ struct SettingsView: View {
     @State private var isRepairingConfiguration: Bool = false
 
     var body: some View {
+        VStack(spacing: 12) {
+            TabView {
+                generalTab
+                    .tabItem { Label("General", systemImage: "gearshape") }
+
+                rotationTab
+                    .tabItem { Label("Rotation", systemImage: "arrow.triangle.2.circlepath") }
+
+                categoriesTab
+                    .tabItem { Label("Categories", systemImage: "square.grid.2x2") }
+
+                hotkeysTab
+                    .tabItem { Label("Hotkeys", systemImage: "keyboard") }
+
+                configurationTab
+                    .tabItem { Label("Configuration", systemImage: "wrench.and.screwdriver") }
+
+                DiagnosticsView()
+                    .tabItem { Label("Diagnostics", systemImage: "stethoscope") }
+            }
+            .tabViewStyle(.sidebarAdaptable)
+
+            Divider()
+
+            Text(appState.statusLine)
+                .font(.footnote)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(
+                    appState.lastErrorMessage == nil
+                        ? AnyShapeStyle(.secondary)
+                        : AnyShapeStyle(Color.red)
+                )
+        }
+        .padding(20)
+        .frame(width: 640, height: 560)
+        .task {
+            guard catalogSnapshot == nil, catalogErrorMessage == nil else { return }
+            do {
+                catalogSnapshot = try await appState.loadCatalogSnapshot()
+            } catch {
+                catalogErrorMessage = error.localizedDescription
+            }
+        }
+        .task {
+            await refreshConfigurationStatus()
+        }
+    }
+
+    private var generalTab: some View {
+        Form {
+            Section("Startup") {
+                Toggle(
+                    "Launch at login",
+                    isOn: Binding(
+                        get: { appState.settings.launchAtLogin },
+                        set: { appState.setLaunchAtLoginEnabled($0) }
+                    )
+                )
+
+                if let message = appState.launchAtLoginErrorMessage {
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(Color.red)
+                } else {
+                    Text("When enabled, AerialFlow will start automatically when you log in.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Downloads") {
+                Picker(
+                    "Quality",
+                    selection: Binding(
+                        get: { appState.settings.qualityPreference },
+                        set: { appState.settings.qualityPreference = $0 }
+                    )
+                ) {
+                    Text("240fps (largest)").tag(VideoQualityPreference.prefer240fps)
+                    Text("4K").tag(VideoQualityPreference.prefer4k)
+                    Text("1080p").tag(VideoQualityPreference.prefer1080)
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Section("Run Conditions") {
+                Toggle(
+                    "Don’t run when display is off",
+                    isOn: Binding(
+                        get: { appState.settings.skipWhenDisplayOff },
+                        set: { appState.settings.skipWhenDisplayOff = $0 }
+                    )
+                )
+                Toggle(
+                    "Don’t run while screensaver active",
+                    isOn: Binding(
+                        get: { appState.settings.skipWhenScreensaverActive },
+                        set: { appState.settings.skipWhenScreensaverActive = $0 }
+                    )
+                )
+                Toggle(
+                    "Don’t run at login window",
+                    isOn: Binding(
+                        get: { appState.settings.skipAtLoginWindow },
+                        set: { appState.settings.skipAtLoginWindow = $0 }
+                    )
+                )
+            }
+        }
+    }
+
+    private var rotationTab: some View {
         Form {
             Section("Rotation") {
                 Toggle(
@@ -17,6 +130,14 @@ struct SettingsView: View {
                     isOn: Binding(
                         get: { appState.settings.isRotationEnabled },
                         set: { appState.settings.isRotationEnabled = $0 }
+                    )
+                )
+
+                Toggle(
+                    "Random mode",
+                    isOn: Binding(
+                        get: { appState.settings.randomMode },
+                        set: { appState.settings.randomMode = $0 }
                     )
                 )
 
@@ -30,7 +151,11 @@ struct SettingsView: View {
                 }
                 .disabled(!appState.settings.isRotationEnabled)
             }
+        }
+    }
 
+    private var categoriesTab: some View {
+        Form {
             Section("Categories") {
                 if let catalogErrorMessage {
                     Text(catalogErrorMessage)
@@ -54,22 +179,25 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
 
-            Section("Downloads") {
-                Picker(
-                    "Quality",
-                    selection: Binding(
-                        get: { appState.settings.qualityPreference },
-                        set: { appState.settings.qualityPreference = $0 }
-                    )
-                ) {
-                    Text("240fps (largest)").tag(VideoQualityPreference.prefer240fps)
-                    Text("4K").tag(VideoQualityPreference.prefer4k)
-                    Text("1080p").tag(VideoQualityPreference.prefer1080)
-                }
-                .pickerStyle(.segmented)
+    private var hotkeysTab: some View {
+        Form {
+            Section("Hotkeys") {
+                KeyboardShortcuts.Recorder("Next Aerial", name: .nextAerial)
+                KeyboardShortcuts.Recorder("Pause / Continue", name: .togglePause)
+                KeyboardShortcuts.Recorder("Go To Screensaver", name: .goToScreensaver)
+
+                Text("Hotkeys are global and may conflict with other apps. If a shortcut doesn’t work, try a different combination.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
+        }
+    }
 
+    private var configurationTab: some View {
+        Form {
             Section("Configuration") {
                 if let configurationErrorMessage {
                     Text(configurationErrorMessage)
@@ -96,27 +224,6 @@ struct SettingsView: View {
                     }
                 }
             }
-
-            Text(appState.statusLine)
-                .font(.footnote)
-                .foregroundStyle(
-                    appState.lastErrorMessage == nil
-                        ? AnyShapeStyle(.secondary)
-                        : AnyShapeStyle(Color.red)
-                )
-        }
-        .padding(20)
-        .frame(width: 520)
-        .task {
-            guard catalogSnapshot == nil, catalogErrorMessage == nil else { return }
-            do {
-                catalogSnapshot = try await appState.loadCatalogSnapshot()
-            } catch {
-                catalogErrorMessage = error.localizedDescription
-            }
-        }
-        .task {
-            await refreshConfigurationStatus()
         }
     }
 

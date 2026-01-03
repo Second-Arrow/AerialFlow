@@ -9,7 +9,7 @@ protocol Downloading: Sendable {
 final class URLSessionDownloader: Downloading {
     private let session: URLSession
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession) {
         self.session = session
     }
 
@@ -35,7 +35,7 @@ struct AssetDownloader: Sendable {
             case .couldNotCreateDirectory(let url):
                 return "Could not create destination directory: \(url.path)"
             case .downloadReturnedMissingTempFile(let url):
-                return "Download did not produce a temporary file for \(url.absoluteString)."
+                return "Download did not produce a temporary file for \(url.absoluteString). Please try again."
             case .fileMoveFailed(let from, let to, let underlying):
                 return "Failed to move downloaded file from \(from.path) to \(to.path): \(underlying.localizedDescription)"
             }
@@ -52,8 +52,8 @@ struct AssetDownloader: Sendable {
     private let minimumSizeBytes: Int64
 
     init(
-        fileSystem: FileSystem = DefaultFileSystem(),
-        downloader: Downloading = URLSessionDownloader(),
+        fileSystem: FileSystem,
+        downloader: Downloading,
         directoryDetector: ActiveVideoDirectoryDetector,
         minimumSizeBytes: Int64 = 5 * 1024 * 1024
     ) {

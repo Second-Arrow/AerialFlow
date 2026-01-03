@@ -90,6 +90,22 @@ struct AppSettingsTests {
         #expect(reloaded.rotationIntervalSeconds == 1_200)
     }
 
+    @Test func testBackupRetentionCount_persists() async throws {
+        let suiteName = "AerialFlowTests.AppSettings.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw TestError.couldNotCreateUserDefaultsSuite
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var settings = AppSettings()
+        settings.backupRetentionCount = 25
+        settings.save(to: defaults)
+
+        let reloaded = AppSettings.load(from: defaults)
+        #expect(reloaded.backupRetentionCount == 25)
+    }
+
     @Test func testPauseMigration_mapsOldKey() async throws {
         let suiteName = "AerialFlowTests.AppSettings.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {

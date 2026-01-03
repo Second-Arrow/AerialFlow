@@ -8,7 +8,7 @@ struct CategoryResolver: Sendable {
     private let bundleRootURL: URL
 
     init(
-        fileSystem: FileSystem = DefaultFileSystem(),
+        fileSystem: FileSystem,
         bundleRootURL: URL = URL(fileURLWithPath: "/Library/Application Support/com.apple.idleassetsd/Customer/TVIdleScreenStrings.bundle", isDirectory: true)
     ) {
         self.fileSystem = fileSystem

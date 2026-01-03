@@ -15,13 +15,13 @@ struct WallpaperStoreEditor: Sendable {
         var errorDescription: String? {
             switch self {
             case .indexPlistNotFound(let url):
-                return "Wallpaper Index.plist not found at \(url.path)"
+                return "Wallpaper settings file (Index.plist) not found at \(url.path). Open System Settings > Wallpaper and select Aerials, then try again."
             case .decodeFailed(let url, let underlying):
                 return "Failed to decode Index.plist at \(url.path): \(underlying.localizedDescription)"
             case .encodeFailed(let underlying):
                 return "Failed to encode updated Index.plist: \(underlying.localizedDescription)"
             case .noProviderNodesFound(let provider):
-                return "No provider nodes found for provider \(provider)."
+                return "Aerials aren’t configured for Wallpaper / Screen Saver yet. Open System Settings > Wallpaper and select Aerials, then try again."
             case .configDecodeFailed(let underlying):
                 return "Failed to decode embedded Configuration plist: \(underlying.localizedDescription)"
             case .configEncodeFailed(let underlying):
@@ -63,14 +63,15 @@ struct WallpaperStoreEditor: Sendable {
     private let fileSystem: FileSystem
     private let now: @Sendable () -> Date
 
-    init(fileSystem: FileSystem = DefaultFileSystem(), now: @escaping @Sendable () -> Date = Date.init) {
+    init(fileSystem: FileSystem, now: @escaping @Sendable () -> Date = Date.init) {
         self.fileSystem = fileSystem
         self.now = now
     }
 
     func applyAerialAssetID(
         _ assetID: String,
-        indexPlistURL: URL = WallpaperStoreEditor.defaultIndexPlistURL
+        indexPlistURL: URL = WallpaperStoreEditor.defaultIndexPlistURL,
+        backupRetentionCount: Int = 10
     ) throws -> ApplyResult {
         guard fileSystem.fileExists(at: indexPlistURL) else {
             throw EditorError.indexPlistNotFound(indexPlistURL)
@@ -101,6 +102,7 @@ struct WallpaperStoreEditor: Sendable {
         let backupURL = backupURL(for: indexPlistURL, date: now())
         try fileSystem.writeData(original, to: backupURL, options: [.atomic])
         try fileSystem.writeData(updatedData, to: indexPlistURL, options: [.atomic])
+        pruneBackupsBestEffort(indexPlistURL: indexPlistURL, keepingMostRecent: backupRetentionCount)
 
         logger.debug("Applied assetID=\(assetID, privacy: .public) updatedNodes=\(edited.updatedCount)")
         return ApplyResult(updatedProviderNodeCount: edited.updatedCount, backupURL: backupURL)
@@ -147,13 +149,18 @@ struct WallpaperStoreEditor: Sendable {
 
     func repairAerialConfiguration(
         desiredAssetID: String,
-        indexPlistURL: URL = WallpaperStoreEditor.defaultIndexPlistURL
+        indexPlistURL: URL = WallpaperStoreEditor.defaultIndexPlistURL,
+        backupRetentionCount: Int = 10
     ) throws -> AerialConfigurationRepairReport {
         let provider = "com.apple.wallpaper.choice.aerials"
 
         let status = try inspectAerialConfiguration(indexPlistURL: indexPlistURL)
         if status.totalProviderNodes > 0 {
-            let apply = try applyAerialAssetID(desiredAssetID, indexPlistURL: indexPlistURL)
+            let apply = try applyAerialAssetID(
+                desiredAssetID,
+                indexPlistURL: indexPlistURL,
+                backupRetentionCount: backupRetentionCount
+            )
             return AerialConfigurationRepairReport(
                 didUpsertProviderNodes: false,
                 updatedProviderNodeCount: apply.updatedProviderNodeCount,
@@ -190,6 +197,7 @@ struct WallpaperStoreEditor: Sendable {
         let backupURL = backupURL(for: indexPlistURL, date: now())
         try fileSystem.writeData(original, to: backupURL, options: [.atomic])
         try fileSystem.writeData(updatedData, to: indexPlistURL, options: [.atomic])
+        pruneBackupsBestEffort(indexPlistURL: indexPlistURL, keepingMostRecent: backupRetentionCount)
 
         logger.debug("Upserted provider nodes updatedCount=\(upsert.updatedCount)")
         return AerialConfigurationRepairReport(
@@ -438,6 +446,38 @@ struct WallpaperStoreEditor: Sendable {
         let dir = indexPlistURL.deletingLastPathComponent()
         let name = "\(indexPlistURL.lastPathComponent).\(stamp).bak"
         return dir.appendingPathComponent(name)
+    }
+
+    private func pruneBackupsBestEffort(indexPlistURL: URL, keepingMostRecent count: Int) {
+        let keepCount = max(1, count)
+        let dir = indexPlistURL.deletingLastPathComponent()
+        let prefix = "\(indexPlistURL.lastPathComponent)."
+
+        let files: [URL]
+        do {
+            files = try fileSystem.listFiles(in: dir)
+        } catch {
+            logger.debug("Backup retention: could not list backups in \(dir.path, privacy: .public)")
+            return
+        }
+
+        let backups = files
+            .filter { url in
+                let name = url.lastPathComponent
+                return name.hasPrefix(prefix) && name.hasSuffix(".bak")
+            }
+            // Name sorts by timestamp (yyyyMMdd-HHmmss), so descending keeps newest first.
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+
+        guard backups.count > keepCount else { return }
+
+        for url in backups.dropFirst(keepCount) {
+            do {
+                try fileSystem.removeItem(at: url)
+            } catch {
+                logger.debug("Backup retention: failed to remove \(url.path, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     private static func timestampString(for date: Date) -> String {

@@ -44,7 +44,7 @@ struct WallpaperStoreEditorTests {
         let originalData = try PropertyListSerialization.data(fromPropertyList: root, format: .binary, options: 0)
         try fs.writeData(originalData, to: indexURL, options: [.atomic])
 
-        let result = try editor.applyAerialAssetID("NEW", indexPlistURL: indexURL)
+        let result = try editor.applyAerialAssetID("NEW", indexPlistURL: indexURL, backupRetentionCount: 10)
         #expect(result.updatedProviderNodeCount == 2)
         #expect(fs.fileExists(at: result.backupURL))
 
@@ -143,7 +143,7 @@ struct WallpaperStoreEditorTests {
         let originalData = try PropertyListSerialization.data(fromPropertyList: root, format: .binary, options: 0)
         try fs.writeData(originalData, to: indexURL, options: [.atomic])
 
-        let repair = try editor.repairAerialConfiguration(desiredAssetID: "NEW", indexPlistURL: indexURL)
+        let repair = try editor.repairAerialConfiguration(desiredAssetID: "NEW", indexPlistURL: indexURL, backupRetentionCount: 10)
         #expect(repair.didUpsertProviderNodes == true)
         #expect(repair.updatedProviderNodeCount == 2)
         #expect(fs.fileExists(at: repair.backupURL))
@@ -194,7 +194,7 @@ struct WallpaperStoreEditorTests {
         try fs.writeData(data, to: indexURL, options: [.atomic])
 
         do {
-            _ = try editor.repairAerialConfiguration(desiredAssetID: "NEW", indexPlistURL: indexURL)
+            _ = try editor.repairAerialConfiguration(desiredAssetID: "NEW", indexPlistURL: indexURL, backupRetentionCount: 10)
             #expect(Bool(false))
         } catch let error as WallpaperStoreEditor.EditorError {
             switch error {
@@ -206,6 +206,54 @@ struct WallpaperStoreEditorTests {
         } catch {
             #expect(Bool(false))
         }
+    }
+
+    @Test func testApply_prunesOldBackups_keepsMostRecentN() throws {
+        let fs = InMemoryFileSystem()
+        let date1 = Date(timeIntervalSince1970: 1_700_000_000)
+        let editor = WallpaperStoreEditor(fileSystem: fs, now: { date1 })
+
+        let storeDir = URL(fileURLWithPath: "/Users/test/Library/Application Support/com.apple.wallpaper/Store", isDirectory: true)
+        try fs.createDirectory(at: storeDir)
+        let indexURL = storeDir.appendingPathComponent("Index.plist")
+
+        func configData(assetID: String) throws -> Data {
+            try PropertyListSerialization.data(
+                fromPropertyList: ["assetID": assetID],
+                format: .binary,
+                options: 0
+            )
+        }
+
+        let root: [String: Any] = [
+            "Desktop": [
+                "Choice": [
+                    "Provider": "com.apple.wallpaper.choice.aerials",
+                    "Configuration": try configData(assetID: "OLD"),
+                ],
+            ],
+        ]
+
+        let originalData = try PropertyListSerialization.data(fromPropertyList: root, format: .binary, options: 0)
+        try fs.writeData(originalData, to: indexURL, options: [.atomic])
+
+        // Create 12 backups with deterministic timestamps (newest should be kept).
+        for i in 0..<12 {
+            let stampDate = date1.addingTimeInterval(TimeInterval(i))
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = "yyyyMMdd-HHmmss"
+            let stamp = formatter.string(from: stampDate)
+            let backupURL = storeDir.appendingPathComponent("Index.plist.\(stamp).bak")
+            try fs.writeData(Data("b\(i)".utf8), to: backupURL, options: [.atomic])
+        }
+
+        _ = try editor.applyAerialAssetID("NEW", indexPlistURL: indexURL, backupRetentionCount: 10)
+
+        let files = try fs.listFiles(in: storeDir)
+        let backups = files.filter { $0.lastPathComponent.hasPrefix("Index.plist.") && $0.lastPathComponent.hasSuffix(".bak") }
+        #expect(backups.count == 10)
     }
 }
 

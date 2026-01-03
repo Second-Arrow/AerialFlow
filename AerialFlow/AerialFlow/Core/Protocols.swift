@@ -30,7 +30,7 @@ protocol AssetDownloadEnsuring: Sendable {
 
 /// Protocol for applying an asset ID to the wallpaper store.
 protocol WallpaperApplying: Sendable {
-    func applyAerialAssetID(_ assetID: String, indexPlistURL: URL) throws -> WallpaperStoreEditor.ApplyResult
+    func applyAerialAssetID(_ assetID: String, indexPlistURL: URL, backupRetentionCount: Int) throws -> WallpaperStoreEditor.ApplyResult
 }
 
 /// Protocol for reloading wallpaper pipelines.
@@ -47,6 +47,14 @@ protocol AerialEngineSettings: Sendable {
     var qualityPreference: VideoQualityPreference { get }
     var downloadTimeout: TimeInterval { get }
     var indexPlistURL: URL { get }
+    var backupRetentionCount: Int { get }
+}
+
+/// Settings required by `RunGuard` to determine whether it should block rotation.
+protocol RunGuardSettings: Sendable {
+    var skipWhenDisplayOff: Bool { get }
+    var skipWhenScreensaverActive: Bool { get }
+    var skipAtLoginWindow: Bool { get }
 }
 
 /// State store for AerialEngine runtime state.
@@ -55,5 +63,19 @@ protocol AerialEngineStateStore: Sendable {
     func setLastAssetID(_ id: String?) async
     func getLastChange() async -> Date?
     func setLastChange(_ date: Date?) async
+}
+
+// MARK: - Launch at Login
+
+enum LaunchAtLoginStatus: Sendable, Equatable {
+    case enabled
+    case disabled
+    case requiresApproval
+}
+
+protocol LaunchAtLoginManaging: Sendable {
+    func status() -> LaunchAtLoginStatus
+    func register() throws
+    func unregister() throws
 }
 
