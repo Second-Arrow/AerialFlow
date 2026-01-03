@@ -26,22 +26,6 @@ struct AppSettingsTests {
         #expect(loaded == AppSettings())
     }
 
-    @Test func testQualityPreference_persists() async throws {
-        let suiteName = "AerialFlowTests.AppSettings.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            throw TestError.couldNotCreateUserDefaultsSuite
-        }
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        var settings = AppSettings()
-        settings.qualityPreference = .prefer4k
-        settings.save(to: defaults)
-
-        let reloaded = AppSettings.load(from: defaults)
-        #expect(reloaded.qualityPreference == .prefer4k)
-    }
-
     @Test func testExcludedCategoryIDs_persists() async throws {
         let suiteName = "AerialFlowTests.AppSettings.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -56,6 +40,22 @@ struct AppSettingsTests {
 
         let reloaded = AppSettings.load(from: defaults)
         #expect(reloaded.excludedCategoryIDs == ["Earth", "Underwater"])
+    }
+
+    @Test func testExcludedSubcategoryIDs_persists() async throws {
+        let suiteName = "AerialFlowTests.AppSettings.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw TestError.couldNotCreateUserDefaultsSuite
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var settings = AppSettings()
+        settings.excludedSubcategoryIDs = ["sub-1", "sub-2"]
+        settings.save(to: defaults)
+
+        let reloaded = AppSettings.load(from: defaults)
+        #expect(reloaded.excludedSubcategoryIDs == ["sub-1", "sub-2"])
     }
 
     @Test func testRotationEnabled_persists() async throws {

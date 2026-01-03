@@ -18,6 +18,7 @@ struct AssetPicker: Sendable {
     func pickNext(
         assets: [AerialAsset],
         excludedCategoryIDs: Set<String>,
+        excludedSubcategoryIDs: Set<String>,
         currentAssetID: String?,
         randomMode: Bool,
         rng: inout some RandomNumberGenerator
@@ -25,8 +26,11 @@ struct AssetPicker: Sendable {
         let eligible = assets
             .filter { asset in
                 guard !asset.id.isEmpty else { return false }
-                if excludedCategoryIDs.isEmpty { return true }
-                return excludedCategoryIDs.isDisjoint(with: Set(asset.categories))
+                if excludedCategoryIDs.isEmpty, excludedSubcategoryIDs.isEmpty { return true }
+                return !asset.isExcluded(
+                    excludedMainCategoryIDs: excludedCategoryIDs,
+                    excludedSubcategoryIDs: excludedSubcategoryIDs
+                )
             }
             .sorted { $0.id < $1.id } // stable, deterministic ordering
 

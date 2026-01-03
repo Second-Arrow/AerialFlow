@@ -4,25 +4,10 @@ import Testing
 @testable import AerialFlow
 
 struct AerialEngineTests {
-    private actor StateStore: AerialEngineStateStore {
-        private var lastAssetID: String?
-        private var lastChange: Date?
-
-        init(lastAssetID: String?, lastChange: Date? = nil) {
-            self.lastAssetID = lastAssetID
-            self.lastChange = lastChange
-        }
-
-        func getLastAssetID() async -> String? { lastAssetID }
-        func setLastAssetID(_ id: String?) async { lastAssetID = id }
-        func getLastChange() async -> Date? { lastChange }
-        func setLastChange(_ date: Date?) async { lastChange = date }
-    }
-
     private struct Settings: AerialEngineSettings {
         let excludedCategoryIDs: Set<String>
+        let excludedSubcategoryIDs: Set<String>
         let randomMode: Bool
-        let qualityPreference: VideoQualityPreference
         let downloadTimeout: TimeInterval
         let indexPlistURL: URL
         let backupRetentionCount: Int
@@ -73,11 +58,13 @@ struct AerialEngineTests {
         func pickNext(
             assets: [AerialAsset],
             excludedCategoryIDs: Set<String>,
+            excludedSubcategoryIDs: Set<String>,
             currentAssetID: String?,
             randomMode: Bool,
             rng: inout some RandomNumberGenerator
         ) throws -> AerialAsset {
             _ = excludedCategoryIDs
+            _ = excludedSubcategoryIDs
             _ = currentAssetID
             _ = randomMode
             _ = rng
@@ -89,9 +76,8 @@ struct AerialEngineTests {
     private struct FakeURLSelector: AssetURLSelecting {
         let recorder: Recorder
         let url: URL
-        func pickURL(for asset: AerialAsset, preference: VideoQualityPreference) throws -> URL {
+        func pickURL(for asset: AerialAsset) throws -> URL {
             _ = asset
-            _ = preference
             recorder.record("url")
             return url
         }
@@ -128,7 +114,7 @@ struct AerialEngineTests {
 
     @Test func testNextRunsPickDownloadApplyReload_inOrder() async throws {
         let recorder = Recorder()
-        let state = StateStore(lastAssetID: "b")
+        let state = FakeEngineStateStore(lastAssetID: "b")
 
         let assets = [
             AerialAsset(id: "a", categories: [], urlVariants: ["url-4K": URL(string: "https://example.com/a.mov")!]),
@@ -150,8 +136,8 @@ struct AerialEngineTests {
         _ = try await engine.next(
             settings: Settings(
                 excludedCategoryIDs: [],
+                excludedSubcategoryIDs: [],
                 randomMode: false,
-                qualityPreference: .prefer4k,
                 downloadTimeout: 5,
                 indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist"),
                 backupRetentionCount: 10
@@ -167,7 +153,7 @@ struct AerialEngineTests {
 
     @Test func testNext_propagatesCatalogLoadFailure() async {
         let recorder = Recorder()
-        let state = StateStore(lastAssetID: nil)
+        let state = FakeEngineStateStore(lastAssetID: nil)
 
         let engine = AerialEngine(
             catalog: FailingCatalog(),
@@ -184,8 +170,8 @@ struct AerialEngineTests {
             _ = try await engine.next(
                 settings: Settings(
                     excludedCategoryIDs: [],
+                    excludedSubcategoryIDs: [],
                     randomMode: false,
-                    qualityPreference: .prefer4k,
                     downloadTimeout: 5,
                     indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist"),
                     backupRetentionCount: 10

@@ -1,17 +1,12 @@
 import Foundation
 import os
 
-protocol RunGuarding: Sendable {
-    nonisolated
-    func shouldRunNow(settings: any RunGuardSettings) -> Bool
-}
-
 /// Guardrail checks to avoid rotating wallpapers at bad times (login window, screensaver, display off).
 ///
 /// This is intentionally best-effort: if a check cannot be evaluated due to command failures,
 /// we fail open rather than permanently disabling rotation.
 struct RunGuard: RunGuarding, Sendable {
-    private let logger = Logger(subsystem: "com.secondarrow.AerialFlow", category: "RunGuard")
+    private let logger = Logger(subsystem: Constants.loggerSubsystem, category: "RunGuard")
 
     private let runner: CommandRunner
 

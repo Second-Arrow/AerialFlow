@@ -9,7 +9,7 @@ struct AerialEngine: Sendable {
         let updatedProviderNodes: Int
     }
 
-    private let logger = Logger(subsystem: "com.secondarrow.AerialFlow", category: "AerialEngine")
+    private let logger = Logger(subsystem: Constants.loggerSubsystem, category: "AerialEngine")
 
     private let catalog: AerialCataloging
     private let picker: AssetPicking
@@ -50,12 +50,13 @@ struct AerialEngine: Sendable {
         let chosen = try picker.pickNext(
             assets: snapshot.assets,
             excludedCategoryIDs: settings.excludedCategoryIDs,
+            excludedSubcategoryIDs: settings.excludedSubcategoryIDs,
             currentAssetID: current,
             randomMode: settings.randomMode,
             rng: &rng
         )
 
-        let url = try urlSelector.pickURL(for: chosen, preference: settings.qualityPreference)
+        let url = try urlSelector.pickURL(for: chosen)
         let downloadResult = try await downloader.ensureDownloaded(assetID: chosen.id, url: url, timeout: settings.downloadTimeout)
 
         let applyResult = try storeEditor.applyAerialAssetID(

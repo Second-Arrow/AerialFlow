@@ -55,12 +55,13 @@ struct ActiveVideoDirectoryDetector: Sendable {
         guard let result, result.exitCode == 0 else { return nil }
 
         // lsof -Fn emits lines like: "n/Path/To/File"
+        // Lines starting with "n" contain file paths
         for line in result.stdout.split(separator: "\n") {
-            guard line.first == "n" else { continue }
-            let path = String(line.dropFirst())
-            if path.hasSuffix(".mov") {
-                return URL(fileURLWithPath: path)
-            }
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.first == "n", trimmed.count > 1 else { continue }
+            let path = String(trimmed.dropFirst())
+            guard !path.isEmpty, path.hasSuffix(".mov") else { continue }
+            return URL(fileURLWithPath: path)
         }
         return nil
     }

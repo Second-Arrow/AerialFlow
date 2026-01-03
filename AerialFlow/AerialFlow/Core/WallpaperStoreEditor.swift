@@ -21,7 +21,7 @@ struct WallpaperStoreEditor: Sendable {
             case .encodeFailed(let underlying):
                 return "Failed to encode updated Index.plist: \(underlying.localizedDescription)"
             case .noProviderNodesFound(let provider):
-                return "Aerials aren’t configured for Wallpaper / Screen Saver yet. Open System Settings > Wallpaper and select Aerials, then try again."
+                return "Aerials aren’t configured for Wallpaper / Screen Saver yet (provider=\(provider)). Open System Settings > Wallpaper and select Aerials, then try again."
             case .configDecodeFailed(let underlying):
                 return "Failed to decode embedded Configuration plist: \(underlying.localizedDescription)"
             case .configEncodeFailed(let underlying):
@@ -59,7 +59,7 @@ struct WallpaperStoreEditor: Sendable {
         let backupURL: URL
     }
 
-    private let logger = Logger(subsystem: "com.secondarrow.AerialFlow", category: "WallpaperStoreEditor")
+    private let logger = Logger(subsystem: Constants.loggerSubsystem, category: "WallpaperStoreEditor")
     private let fileSystem: FileSystem
     private let now: @Sendable () -> Date
 

@@ -5,7 +5,7 @@ import os
 ///
 /// Designed to be energy-efficient: it does *not* wake every minute; instead it sleeps until the next due date.
 actor RotationController: Sendable {
-    private let logger = Logger(subsystem: "com.secondarrow.AerialFlow", category: "RotationController")
+    private let logger = Logger(subsystem: Constants.loggerSubsystem, category: "RotationController")
 
     private let stateStore: any AerialEngineStateStore
     private let runGuard: any RunGuarding
@@ -68,7 +68,7 @@ actor RotationController: Sendable {
         guard settings.isRotationEnabled else { return }
 
         let currentNow = now()
-        let intervalSeconds = max(60, settings.rotationIntervalSeconds)
+        let intervalSeconds = max(Constants.minimumRotationIntervalSeconds, settings.rotationIntervalSeconds)
         let interval = TimeInterval(intervalSeconds)
 
         let lastChange = await stateStore.getLastChange()
@@ -103,7 +103,7 @@ actor RotationController: Sendable {
 
             guard let nextDate = await nextScheduledChangeDate() else {
                 // Rotation disabled. Sleep long; `updateSettings` cancels/restarts for responsiveness.
-                try? await sleepNanoseconds(60 * 60 * 1_000_000_000)
+                try? await sleepNanoseconds(Constants.oneHourNanoseconds)
                 continue
             }
 
@@ -117,7 +117,7 @@ actor RotationController: Sendable {
 
     private func computeNextScheduledChangeDate(now: Date, lastChange: Date?) -> Date? {
         guard settings.isRotationEnabled else { return nil }
-        let intervalSeconds = max(60, settings.rotationIntervalSeconds)
+        let intervalSeconds = max(Constants.minimumRotationIntervalSeconds, settings.rotationIntervalSeconds)
         let interval = TimeInterval(intervalSeconds)
 
         let dueDate = computeDueDate(now: now, lastChange: lastChange, interval: interval)

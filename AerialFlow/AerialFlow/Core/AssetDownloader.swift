@@ -1,10 +1,6 @@
 import Foundation
 import os
 
-protocol Downloading: Sendable {
-    func download(from url: URL, timeout: TimeInterval) async throws -> URL
-}
-
 /// Default downloader based on URLSession.
 final class URLSessionDownloader: Downloading {
     private let session: URLSession
@@ -42,20 +38,20 @@ struct AssetDownloader: Sendable {
         }
     }
 
-    private let logger = Logger(subsystem: "com.secondarrow.AerialFlow", category: "AssetDownloader")
+    private let logger = Logger(subsystem: Constants.loggerSubsystem, category: "AssetDownloader")
 
     private let fileSystem: FileSystem
     private let downloader: Downloading
     private let directoryDetector: ActiveVideoDirectoryDetector
 
-    /// Minimum file size (bytes) to consider an asset “present”.
+    /// Minimum file size (bytes) to consider an asset "present".
     private let minimumSizeBytes: Int64
 
     init(
         fileSystem: FileSystem,
         downloader: Downloading,
         directoryDetector: ActiveVideoDirectoryDetector,
-        minimumSizeBytes: Int64 = 5 * 1024 * 1024
+        minimumSizeBytes: Int64 = Constants.minimumAssetFileSizeBytes
     ) {
         self.fileSystem = fileSystem
         self.downloader = downloader

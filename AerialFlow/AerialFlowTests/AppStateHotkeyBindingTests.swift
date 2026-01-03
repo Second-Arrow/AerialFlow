@@ -3,7 +3,9 @@ import Testing
 import KeyboardShortcuts
 @testable import AerialFlow
 
-private final class FakeHotkeyBinder: HotkeyBinding {
+/// `HotkeyBinding` is `Sendable`, but this test fake has internal mutable state guarded by `NSLock`,
+/// so we use `@unchecked Sendable` to silence strict Swift 6 Sendable checking.
+private final class FakeHotkeyBinder: HotkeyBinding, @unchecked Sendable {
     private let lock = NSLock()
     private(set) var registeredNames: [KeyboardShortcuts.Name] = []
     private var handlers: [KeyboardShortcuts.Name: @Sendable () -> Void] = [:]
@@ -23,7 +25,9 @@ private final class FakeHotkeyBinder: HotkeyBinding {
     }
 }
 
-private final class FakeScreensaverLauncher: ScreensaverLaunching {
+/// `ScreensaverLaunching` is `Sendable`, but this test fake has internal mutable state guarded by `NSLock`,
+/// so we use `@unchecked Sendable` to silence strict Swift 6 Sendable checking.
+private final class FakeScreensaverLauncher: ScreensaverLaunching, @unchecked Sendable {
     private let lock = NSLock()
     private(set) var startCallCount: Int = 0
 
@@ -50,13 +54,15 @@ struct AppStateHotkeyBindingTests {
         let binder = FakeHotkeyBinder()
         let launcher = FakeScreensaverLauncher()
 
-        let state = await MainActor.run {
+        let state = await MainActor.run { [suiteName] in
+            // `MainActor.run` takes a `@Sendable` closure; avoid capturing `UserDefaults` (non-Sendable).
+            let defaultsForMainActor = UserDefaults(suiteName: suiteName)!
             let dependencies = AppDependencies.live(
-                userDefaults: defaults,
+                userDefaults: defaultsForMainActor,
                 screensaverLauncher: launcher,
                 hotkeyBinder: binder
             )
-            return AppState(dependencies: dependencies, userDefaults: defaults)
+            return AppState(dependencies: dependencies, userDefaults: defaultsForMainActor)
         }
         _ = state
 
@@ -78,13 +84,15 @@ struct AppStateHotkeyBindingTests {
         let binder = FakeHotkeyBinder()
         let launcher = FakeScreensaverLauncher()
 
-        let state = await MainActor.run {
+        let state = await MainActor.run { [suiteName] in
+            // `MainActor.run` takes a `@Sendable` closure; avoid capturing `UserDefaults` (non-Sendable).
+            let defaultsForMainActor = UserDefaults(suiteName: suiteName)!
             let dependencies = AppDependencies.live(
-                userDefaults: defaults,
+                userDefaults: defaultsForMainActor,
                 screensaverLauncher: launcher,
                 hotkeyBinder: binder
             )
-            return AppState(dependencies: dependencies, userDefaults: defaults)
+            return AppState(dependencies: dependencies, userDefaults: defaultsForMainActor)
         }
         _ = state
 

@@ -1,18 +1,15 @@
 import Foundation
 
 /// User-configurable settings for AerialFlow.
-///
-/// Note: For Milestone 2 we load a snapshot at startup to configure the engine.
-/// Settings UI wiring will come later.
 struct AppSettings: Sendable, Equatable {
-    /// Controls whether scheduled rotation is enabled (scheduler arrives in Milestone 5).
+    /// Controls whether scheduled rotation is enabled.
     var isRotationEnabled: Bool
-    /// Rotation interval in seconds (scheduler arrives in Milestone 5).
+    /// Rotation interval in seconds.
     var rotationIntervalSeconds: Int
     var launchAtLogin: Bool
     var excludedCategoryIDs: Set<String>
+    var excludedSubcategoryIDs: Set<String>
     var randomMode: Bool
-    var qualityPreference: VideoQualityPreference
     var downloadTimeout: TimeInterval
     var indexPlistURL: URL
     var skipWhenDisplayOff: Bool
@@ -23,24 +20,24 @@ struct AppSettings: Sendable, Equatable {
 
     init(
         isRotationEnabled: Bool = true,
-        rotationIntervalSeconds: Int = 600,
+        rotationIntervalSeconds: Int = Constants.defaultRotationIntervalSeconds,
         launchAtLogin: Bool = false,
         excludedCategoryIDs: Set<String> = [],
+        excludedSubcategoryIDs: Set<String> = [],
         randomMode: Bool = false,
-        qualityPreference: VideoQualityPreference = .prefer240fps,
-        downloadTimeout: TimeInterval = 1800,
+        downloadTimeout: TimeInterval = Constants.defaultDownloadTimeoutSeconds,
         indexPlistURL: URL = WallpaperStoreEditor.defaultIndexPlistURL,
         skipWhenDisplayOff: Bool = true,
         skipWhenScreensaverActive: Bool = true,
         skipAtLoginWindow: Bool = true,
-        backupRetentionCount: Int = 10
+        backupRetentionCount: Int = Constants.defaultBackupRetentionCount
     ) {
         self.isRotationEnabled = isRotationEnabled
         self.rotationIntervalSeconds = rotationIntervalSeconds
         self.launchAtLogin = launchAtLogin
         self.excludedCategoryIDs = excludedCategoryIDs
+        self.excludedSubcategoryIDs = excludedSubcategoryIDs
         self.randomMode = randomMode
-        self.qualityPreference = qualityPreference
         self.downloadTimeout = downloadTimeout
         self.indexPlistURL = indexPlistURL
         self.skipWhenDisplayOff = skipWhenDisplayOff
@@ -56,8 +53,8 @@ extension AppSettings {
         static let rotationIntervalSeconds = "AerialFlow.rotationIntervalSeconds"
         static let launchAtLogin = "AerialFlow.launchAtLogin"
         static let excludedCategoryIDs = "AerialFlow.excludedCategoryIDs"
+        static let excludedSubcategoryIDs = "AerialFlow.excludedSubcategoryIDs"
         static let randomMode = "AerialFlow.randomMode"
-        static let qualityPreference = "AerialFlow.qualityPreference"
         static let downloadTimeout = "AerialFlow.downloadTimeout"
         static let indexPlistURL = "AerialFlow.indexPlistURL"
         static let skipWhenDisplayOff = "AerialFlow.skipWhenDisplayOff"
@@ -67,7 +64,7 @@ extension AppSettings {
     }
 
     static func load(from userDefaults: UserDefaults = .standard) -> AppSettings {
-        // Migration from legacy "pause" key (Milestone 2).
+        // Migration from legacy "pause" key.
         // If the old key exists and the new one does not, map pause -> rotationEnabled.
         let legacyPausedKey = "AerialFlow.isPaused"
         let hasLegacyPaused = userDefaults.object(forKey: legacyPausedKey) != nil
@@ -80,23 +77,21 @@ extension AppSettings {
 
         let isRotationEnabled = userDefaults.object(forKey: Keys.isRotationEnabled) as? Bool ?? true
 
-        let intervalSeconds = userDefaults.object(forKey: Keys.rotationIntervalSeconds) as? Int ?? 600
-        let rotationIntervalSeconds = max(60, intervalSeconds)
+        let intervalSeconds = userDefaults.object(forKey: Keys.rotationIntervalSeconds) as? Int ?? Constants.defaultRotationIntervalSeconds
+        let rotationIntervalSeconds = max(Constants.minimumRotationIntervalSeconds, intervalSeconds)
 
         let launchAtLogin = userDefaults.object(forKey: Keys.launchAtLogin) as? Bool ?? false
 
         let excluded = Set(userDefaults.stringArray(forKey: Keys.excludedCategoryIDs) ?? [])
+        let excludedSubcategories = Set(userDefaults.stringArray(forKey: Keys.excludedSubcategoryIDs) ?? [])
         let randomMode = userDefaults.bool(forKey: Keys.randomMode)
 
-        let qualityRaw = userDefaults.string(forKey: Keys.qualityPreference)
-        let quality = qualityRaw.flatMap(VideoQualityPreference.init(rawValue:)) ?? .prefer240fps
-
-        let timeout = userDefaults.object(forKey: Keys.downloadTimeout) as? Double ?? 1800
+        let timeout = userDefaults.object(forKey: Keys.downloadTimeout) as? Double ?? Constants.defaultDownloadTimeoutSeconds
 
         let skipWhenDisplayOff = userDefaults.object(forKey: Keys.skipWhenDisplayOff) as? Bool ?? true
         let skipWhenScreensaverActive = userDefaults.object(forKey: Keys.skipWhenScreensaverActive) as? Bool ?? true
         let skipAtLoginWindow = userDefaults.object(forKey: Keys.skipAtLoginWindow) as? Bool ?? true
-        let backupRetentionRaw = userDefaults.object(forKey: Keys.backupRetentionCount) as? Int ?? 10
+        let backupRetentionRaw = userDefaults.object(forKey: Keys.backupRetentionCount) as? Int ?? Constants.defaultBackupRetentionCount
         let backupRetentionCount = validateBackupRetentionCount(backupRetentionRaw)
 
         let indexPlistURL: URL
@@ -112,8 +107,8 @@ extension AppSettings {
             rotationIntervalSeconds: rotationIntervalSeconds,
             launchAtLogin: launchAtLogin,
             excludedCategoryIDs: excluded,
+            excludedSubcategoryIDs: excludedSubcategories,
             randomMode: randomMode,
-            qualityPreference: quality,
             downloadTimeout: timeout,
             indexPlistURL: indexPlistURL,
             skipWhenDisplayOff: skipWhenDisplayOff,
@@ -128,8 +123,8 @@ extension AppSettings {
         userDefaults.set(rotationIntervalSeconds, forKey: Keys.rotationIntervalSeconds)
         userDefaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
         userDefaults.set(Array(excludedCategoryIDs).sorted(), forKey: Keys.excludedCategoryIDs)
+        userDefaults.set(Array(excludedSubcategoryIDs).sorted(), forKey: Keys.excludedSubcategoryIDs)
         userDefaults.set(randomMode, forKey: Keys.randomMode)
-        userDefaults.set(qualityPreference.rawValue, forKey: Keys.qualityPreference)
         userDefaults.set(downloadTimeout, forKey: Keys.downloadTimeout)
         userDefaults.set(indexPlistURL.absoluteString, forKey: Keys.indexPlistURL)
         userDefaults.set(skipWhenDisplayOff, forKey: Keys.skipWhenDisplayOff)
@@ -139,7 +134,7 @@ extension AppSettings {
     }
 
     private static func validateBackupRetentionCount(_ value: Int) -> Int {
-        min(50, max(1, value))
+        min(Constants.maximumBackupRetentionCount, max(1, value))
     }
 }
 

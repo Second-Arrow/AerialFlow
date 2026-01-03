@@ -1,11 +1,16 @@
 import Foundation
 import os
 
-/// Resolves human-readable category names from Apple's TVIdleScreenStrings bundle.
-struct CategoryResolver: Sendable {
-    private let logger = Logger(subsystem: "com.secondarrow.AerialFlow", category: "CategoryResolver")
+/// Resolves human-readable names from Apple's TVIdleScreenStrings bundle.
+///
+/// Implemented as an `actor` to ensure thread-safe caching of the loaded strings.
+actor CategoryResolver {
+    private let logger = Logger(subsystem: Constants.loggerSubsystem, category: "CategoryResolver")
     private let fileSystem: FileSystem
     private let bundleRootURL: URL
+
+    private var cachedStrings: [String: Set<String>]?
+    private var cacheTimestamp: Date?
 
     init(
         fileSystem: FileSystem,
@@ -16,20 +21,35 @@ struct CategoryResolver: Sendable {
     }
 
     /// Loads localized strings from `*.lproj/Localizable(.nocache).strings` files.
+    ///
+    /// Important: we only load the best-matching localization (with fallbacks) so the UI shows
+    /// the user's preferred language, rather than an arbitrary merged set across all locales.
+    ///
+    /// Results are cached and reused on subsequent calls.
     func loadAllLocalizedStrings() -> [String: Set<String>] {
-        guard fileSystem.fileExists(at: bundleRootURL) else { return [:] }
+        // Return cached result if available
+        if let cachedStrings {
+            return cachedStrings
+        }
 
-        var merged: [String: Set<String>] = [:]
+        guard fileSystem.fileExists(at: bundleRootURL) else {
+            cachedStrings = [:]
+            return [:]
+        }
 
         let lprojDirs: [URL]
         do {
             lprojDirs = try fileSystem.listFiles(in: bundleRootURL).filter { $0.pathExtension == "lproj" }
         } catch {
             logger.debug("Failed to list bundle root: \(String(describing: error), privacy: .public)")
+            cachedStrings = [:]
             return [:]
         }
 
-        for lproj in lprojDirs {
+        let selected = selectPreferredLprojDirs(from: lprojDirs)
+        var merged: [String: Set<String>] = [:]
+
+        for lproj in selected {
             let files: [URL]
             do {
                 files = try fileSystem.listFiles(in: lproj)
@@ -48,7 +68,16 @@ struct CategoryResolver: Sendable {
             }
         }
 
+        cachedStrings = merged
+        cacheTimestamp = Date()
+        logger.debug("Loaded localized strings: \(merged.count) keys")
         return merged
+    }
+
+    /// Clears the cache, forcing a reload on next access.
+    func invalidateCache() {
+        cachedStrings = nil
+        cacheTimestamp = nil
     }
 
     /// Builds a map: categoryID -> possible display names (across locales).
@@ -66,6 +95,47 @@ struct CategoryResolver: Sendable {
             result[category.id] = names
         }
         return result
+    }
+
+    /// Resolves an Aerial asset ID (as found in `entries.json`) to a human-readable name, if available.
+    ///
+    /// The strings bundle typically stores the primary title under `"\(assetID)_NAME"`.
+    func assetName(for assetID: String) -> String? {
+        guard !assetID.isEmpty else { return nil }
+        let strings = loadAllLocalizedStrings()
+
+        let keysToTry = ["\(assetID)_NAME", assetID]
+        for key in keysToTry {
+            guard let values = strings[key], !values.isEmpty else { continue }
+            return values
+                .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+                .first
+        }
+
+        return nil
+    }
+
+    func assetName(for asset: AerialAsset) -> String? {
+        let strings = loadAllLocalizedStrings()
+
+        if let key = asset.localizedNameKey, !key.isEmpty,
+           let values = strings[key], !values.isEmpty {
+            return values
+                .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+                .first
+        }
+
+        if let shotID = asset.shotID, !shotID.isEmpty {
+            let keysToTry = ["\(shotID)_NAME", shotID]
+            for key in keysToTry {
+                guard let values = strings[key], !values.isEmpty else { continue }
+                return values
+                    .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+                    .first
+            }
+        }
+
+        return assetName(for: asset.id)
     }
 
     /// Resolves excluded category IDs by matching terms against any localized name (substring, case-insensitive) or exact category ID.
@@ -126,6 +196,34 @@ struct CategoryResolver: Sendable {
         }
         return [:]
     }
+
+    private func selectPreferredLprojDirs(from lprojDirs: [URL]) -> [URL] {
+        // Map: "en_GB.lproj" -> "en_GB"
+        let available: [String: URL] = Dictionary(
+            uniqueKeysWithValues: lprojDirs.compactMap { url in
+                let tag = url.deletingPathExtension().lastPathComponent
+                guard !tag.isEmpty else { return nil }
+                return (tag, url)
+            }
+        )
+
+        let locale = Locale.current
+        let identifier = locale.identifier // e.g. "en_US"
+        let language = locale.language.languageCode?.identifier // e.g. "en"
+
+        var candidates: [String] = []
+        if !identifier.isEmpty { candidates.append(identifier) }
+        if let language, !language.isEmpty { candidates.append(language) }
+        candidates.append("en")
+
+        for tag in candidates {
+            if let exact = available[tag] {
+                return [exact]
+            }
+        }
+
+        // Fallback: if we couldn't match locale tags, load English if present, else load all.
+        if let en = available["en"] { return [en] }
+        return lprojDirs
+    }
 }
-
-

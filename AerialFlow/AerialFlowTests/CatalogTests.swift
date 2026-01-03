@@ -11,6 +11,7 @@ struct CatalogTests {
             {
               "id": "ASSET-1",
               "categories": ["cat-1", "cat-2"],
+              "subcategories": ["sub-1"],
               "url-4K-SDR-240FPS": "https://example.com/a.mov",
               "url-4K": "https://example.com/b.mov",
               "someOtherKey": 123
@@ -20,8 +21,15 @@ struct CatalogTests {
             }
           ],
           "categories": [
-            { "id": "cat-1", "localizedNameKey": "Earth" },
-            { "id": "cat-2", "localizedNameKey": "Underwater" }
+            {
+              "id": "cat-1",
+              "localizedNameKey": "Earth",
+              "preferredOrder": 0,
+              "subcategories": [
+                { "id": "sub-1", "localizedNameKey": "Sequoia", "preferredOrder": 0 }
+              ]
+            },
+            { "id": "cat-2", "localizedNameKey": "Underwater", "preferredOrder": 1 }
           ]
         }
         """
@@ -33,13 +41,21 @@ struct CatalogTests {
         let first = decoded.assets[0]
         #expect(first.id == "ASSET-1")
         #expect(first.categories == ["cat-1", "cat-2"])
+        #expect(first.subcategories == ["sub-1"])
         #expect(first.urlVariants["url-4K-SDR-240FPS"]?.absoluteString == "https://example.com/a.mov")
         #expect(first.urlVariants["url-4K"]?.absoluteString == "https://example.com/b.mov")
 
         let second = decoded.assets[1]
         #expect(second.id == "ASSET-2")
         #expect(second.categories.isEmpty)
+        #expect(second.subcategories.isEmpty)
         #expect(second.urlVariants.isEmpty)
+
+        let firstCategory = decoded.categories[0]
+        #expect(firstCategory.id == "cat-1")
+        #expect(firstCategory.preferredOrder == 0)
+        #expect(firstCategory.subcategories.count == 1)
+        #expect(firstCategory.subcategories[0].id == "sub-1")
     }
 
     @Test func testAerialCatalog_loadsSnapshotFromFileSystem() async throws {

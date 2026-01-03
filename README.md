@@ -1,18 +1,15 @@
 # AerialFlow
 
-A small macOS utility that fixes the Aerials screensaver bug where backgrounds don't automatically switch to the next Aerial video. AerialFlow automatically downloads Aerial videos in your preferred quality and provides hotkey support for quick access to screensaver controls.
+A small macOS utility that fixes the Aerials screensaver bug where backgrounds don't automatically switch to the next Aerial video. AerialFlow automatically downloads Aerial videos and provides hotkey support for quick access to screensaver controls.
 
 ## Features
 
 - 🔄 **Automatic Background Rotation**: Fixes the macOS Aerials screensaver bug that prevents automatic switching between Aerial videos
-- 📥 **Automatic Downloads**: Automatically downloads Aerial videos based on your preferred quality:
-  - 4K (3840×2160)
-  - 4K-240FPS (3840×2160 at 240 frames per second)
+- 📥 **Automatic Downloads**: Automatically downloads Aerial videos in 4K SDR 240fps quality
 - ⌨️ **Hotkey Support**: Quick keyboard shortcuts for:
   - **Next Aerial**: Switch to the next Aerial background immediately
   - **Go To Screensaver**: Launch the screensaver
   - **Lock**: Lock your Mac screen
-- 🎨 **Quality Selection**: Choose your preferred video quality in settings
 - 🔧 **Lightweight**: Minimal resource usage, runs quietly in the background
 
 ## Requirements
@@ -55,8 +52,7 @@ A small macOS utility that fixes the Aerials screensaver bug where backgrounds d
 1. Launch AerialFlow from Applications
 2. The app will appear in your menu bar
 3. Click the menu bar icon to access settings
-4. Select your preferred video quality (4K or 4K-240FPS)
-5. AerialFlow will begin downloading videos in the background
+4. AerialFlow will begin downloading videos in the background
 
 ### Menu Bar Controls
 
@@ -80,7 +76,6 @@ Default hotkeys can be customized in the app settings.
 
 Access settings via the menu bar icon:
 
-- **Video Quality**: Choose between 4K and 4K-240FPS
 - **Rotation Interval**: Set how often backgrounds should rotate (if applicable)
 - **Hotkey Configuration**: Customize keyboard shortcuts
 - **Download Preferences**: Manage download behavior and storage
@@ -90,7 +85,7 @@ Access settings via the menu bar icon:
 AerialFlow works by:
 
 1. **Catalog Management**: Maintains a local catalog of available Aerial videos
-2. **Automatic Downloads**: Downloads videos in your preferred quality when available
+2. **Automatic Downloads**: Downloads videos in 4K SDR 240fps quality when available
 3. **Rotation Control**: Manages the macOS wallpaper rotation to ensure Aerials switch properly
 4. **System Integration**: Integrates with macOS wallpaper and screensaver systems
 

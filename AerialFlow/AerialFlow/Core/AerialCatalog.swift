@@ -29,7 +29,7 @@ actor AerialCatalog {
         let fileModificationDate: Date?
     }
 
-    private let logger = Logger(subsystem: "com.secondarrow.AerialFlow", category: "AerialCatalog")
+    private let logger = Logger(subsystem: Constants.loggerSubsystem, category: "AerialCatalog")
     private let fileURL: URL
     private let fileSystem: FileSystem
 

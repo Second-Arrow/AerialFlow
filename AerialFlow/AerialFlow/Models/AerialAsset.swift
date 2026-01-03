@@ -8,11 +8,17 @@ import Foundation
 struct AerialAsset: Decodable, Hashable, Sendable {
     let id: String
     let categories: [String]
+    let subcategories: [String]
+    let localizedNameKey: String?
+    let shotID: String?
     let urlVariants: [String: URL]
 
     private enum KnownKeys: String, CodingKey {
         case id
         case categories
+        case subcategories
+        case localizedNameKey
+        case shotID
     }
 
     private struct DynamicKey: CodingKey {
@@ -22,9 +28,19 @@ struct AerialAsset: Decodable, Hashable, Sendable {
         init?(intValue: Int) { return nil }
     }
 
-    init(id: String, categories: [String], urlVariants: [String: URL]) {
+    init(
+        id: String,
+        categories: [String],
+        subcategories: [String] = [],
+        localizedNameKey: String? = nil,
+        shotID: String? = nil,
+        urlVariants: [String: URL]
+    ) {
         self.id = id
         self.categories = categories
+        self.subcategories = subcategories
+        self.localizedNameKey = localizedNameKey
+        self.shotID = shotID
         self.urlVariants = urlVariants
     }
 
@@ -34,6 +50,9 @@ struct AerialAsset: Decodable, Hashable, Sendable {
 
         self.id = (try? known.decode(String.self, forKey: .id)) ?? ""
         self.categories = (try? known.decode([String].self, forKey: .categories)) ?? []
+        self.subcategories = (try? known.decode([String].self, forKey: .subcategories)) ?? []
+        self.localizedNameKey = try? known.decode(String.self, forKey: .localizedNameKey)
+        self.shotID = try? known.decode(String.self, forKey: .shotID)
 
         var variants: [String: URL] = [:]
         for key in dynamic.allKeys where key.stringValue.hasPrefix("url-") {
@@ -46,6 +65,34 @@ struct AerialAsset: Decodable, Hashable, Sendable {
             }
         }
         self.urlVariants = variants
+    }
+}
+
+extension AerialAsset {
+    /// All category IDs associated with the asset (top-level categories + subcategories).
+    var allCategoryIDs: Set<String> {
+        Set(categories).union(subcategories)
+    }
+
+    func isExcluded(
+        excludedMainCategoryIDs: Set<String>,
+        excludedSubcategoryIDs: Set<String>
+    ) -> Bool {
+        if !excludedMainCategoryIDs.isEmpty {
+            let mainIDs = Set(categories)
+            if !excludedMainCategoryIDs.isDisjoint(with: mainIDs) {
+                return true
+            }
+        }
+
+        if !excludedSubcategoryIDs.isEmpty {
+            let subIDs = Set(subcategories)
+            if !excludedSubcategoryIDs.isDisjoint(with: subIDs) {
+                return true
+            }
+        }
+
+        return false
     }
 }
 

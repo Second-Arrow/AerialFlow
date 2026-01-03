@@ -3,34 +3,44 @@ import SwiftUI
 struct DiagnosticsView: View {
     @EnvironmentObject private var appState: AppState
 
-    @State private var snapshot: AppState.DiagnosticsSnapshot?
+    @State private var snapshot: DiagnosticsSnapshot?
     @State private var snapshotErrorMessage: String?
 
     var body: some View {
-        Form {
-            Section("Runtime") {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Runtime")
+                    .font(.headline)
+
                 keyValueRow("Detected video dir", value: snapshot?.detectedVideoDirectory?.path)
                 keyValueRow("Current .mov open", value: snapshot?.currentMovPath?.path)
+                keyValueRow("Storage used", value: formattedStorageUsed(snapshot?.storageUsedBytes))
             }
 
-            Section("State") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("State")
+                    .font(.headline)
+
                 keyValueRow("Index.plist", value: appState.settings.indexPlistURL.path)
                 keyValueRow("Last applied asset ID", value: snapshot?.lastAssetID)
                 keyValueRow("Last change", value: snapshot?.lastChangeDescription)
+                keyValueRow("Next update", value: snapshot?.nextScheduledChangeDescription)
                 keyValueRow("Last error", value: appState.lastErrorMessage)
+
+                SettingsRow("Backup retention", labelWidth: 160) {
+                    Text("\(appState.settings.backupRetentionCount)")
+                        .foregroundStyle(.secondary)
+                }
+                .help("How many Index.plist backups AerialFlow keeps. Change this in Configuration > Advanced.")
+
+                Text("Diagnostics are read-only. Adjust settings in the other tabs.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
-            Section("Backups") {
-                Stepper(
-                    value: Binding(
-                        get: { appState.settings.backupRetentionCount },
-                        set: { appState.settings.backupRetentionCount = $0 }
-                    ),
-                    in: 1...50,
-                    step: 1
-                ) {
-                    Text("Keep last \(appState.settings.backupRetentionCount) backups")
-                }
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Backups")
+                    .font(.headline)
 
                 if let count = snapshot?.backupCount {
                     Text("Found \(count) backups next to Index.plist.")
@@ -51,6 +61,10 @@ struct DiagnosticsView: View {
                         }
                     }
                 }
+
+                Text("Backup retention can be changed in Configuration > Advanced.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             if let snapshotErrorMessage {
@@ -60,7 +74,10 @@ struct DiagnosticsView: View {
             }
         }
         .task { await refresh() }
-        .onChange(of: appState.settings.indexPlistURL) { _ in
+        .onChange(of: appState.settings.indexPlistURL) { _, _ in
+            Task { await refresh() }
+        }
+        .onChange(of: appState.statusLine) { _, _ in
             Task { await refresh() }
         }
     }
@@ -78,15 +95,23 @@ struct DiagnosticsView: View {
 
     @ViewBuilder
     private func keyValueRow(_ key: String, value: String?) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(key)
-                .frame(width: 160, alignment: .leading)
-            Spacer()
+        SettingsRow(key, labelWidth: 160) {
             Text(value ?? "—")
                 .foregroundStyle(value == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+                .lineLimit(2)
+                .truncationMode(.middle)
         }
     }
+
+    private func formattedStorageUsed(_ bytes: Int64?) -> String? {
+        guard let bytes else { return nil }
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useGB, .useMB, .useKB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
 }
+
 
 

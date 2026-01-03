@@ -12,15 +12,16 @@ protocol AssetPicking: Sendable {
     func pickNext(
         assets: [AerialAsset],
         excludedCategoryIDs: Set<String>,
+        excludedSubcategoryIDs: Set<String>,
         currentAssetID: String?,
         randomMode: Bool,
         rng: inout some RandomNumberGenerator
     ) throws -> AerialAsset
 }
 
-/// Protocol for selecting the best download URL for an asset.
+/// Protocol for selecting a download URL for an asset.
 protocol AssetURLSelecting: Sendable {
-    func pickURL(for asset: AerialAsset, preference: VideoQualityPreference) throws -> URL
+    func pickURL(for asset: AerialAsset) throws -> URL
 }
 
 /// Protocol for ensuring an asset is downloaded.
@@ -38,13 +39,23 @@ protocol WallpaperReloading: Sendable {
     func reloadWallpaperPipelines()
 }
 
+/// Protocol for downloading files from URLs.
+protocol Downloading: Sendable {
+    func download(from url: URL, timeout: TimeInterval) async throws -> URL
+}
+
+/// Guardrail checks to decide whether wallpaper rotation should proceed.
+protocol RunGuarding: Sendable {
+    nonisolated func shouldRunNow(settings: any RunGuardSettings) -> Bool
+}
+
 // MARK: - AerialEngine Configuration
 
 /// Settings required by AerialEngine.
 protocol AerialEngineSettings: Sendable {
     var excludedCategoryIDs: Set<String> { get }
+    var excludedSubcategoryIDs: Set<String> { get }
     var randomMode: Bool { get }
-    var qualityPreference: VideoQualityPreference { get }
     var downloadTimeout: TimeInterval { get }
     var indexPlistURL: URL { get }
     var backupRetentionCount: Int { get }
@@ -77,5 +88,30 @@ protocol LaunchAtLoginManaging: Sendable {
     func status() -> LaunchAtLoginStatus
     func register() throws
     func unregister() throws
+}
+
+// MARK: - Tip Jar (StoreKit)
+
+/// The UI-facing representation of an in-app purchase “tip” product.
+struct TipJarProduct: Sendable, Equatable, Identifiable {
+    let id: String
+    let displayName: String
+    let displayPrice: String
+    let sortKey: Int
+}
+
+enum TipJarPurchaseOutcome: Sendable, Equatable {
+    case success
+    case pending
+    case userCancelled
+    case failed(message: String)
+}
+
+/// StoreKit boundary for the “Support Development” Tip Jar.
+///
+/// - Note: Implementations should use StoreKit 2 and finish consumable transactions.
+protocol TipJarPurchasing: Sendable {
+    func fetchProducts(productIDs: [String]) async throws -> [TipJarProduct]
+    func purchase(productID: String) async -> TipJarPurchaseOutcome
 }
 

@@ -1,14 +1,10 @@
 import Foundation
 
-enum VideoQualityPreference: String, Codable, Sendable {
-    case prefer240fps
-    case prefer4k
-    case prefer1080
-}
-
-/// Selects the best download URL from the variants in `entries.json`.
+/// Selects a download URL from the variants in `entries.json`.
+///
+/// Since all assets currently only have `url-4K-SDR-240FPS`, this simply returns the first available URL.
 struct AssetURLSelector: Sendable {
-    enum SelectorError: LocalizedError {
+    enum SelectorError: LocalizedError, Equatable {
         case noURLVariants(assetID: String)
 
         var errorDescription: String? {
@@ -21,63 +17,20 @@ struct AssetURLSelector: Sendable {
 
     init() {}
 
-    func pickURL(for asset: AerialAsset, preference: VideoQualityPreference) throws -> URL {
+    func pickURL(for asset: AerialAsset) throws -> URL {
         guard !asset.urlVariants.isEmpty else {
             throw SelectorError.noURLVariants(assetID: asset.id)
         }
 
-        // Known high-value keys; keep the rest as fallback.
-        // Note: Keep this logic deterministic; if multiple fallbacks match, pick the first by key sort.
-        let keys = Array(asset.urlVariants.keys)
-
-        let priority: [String]
-        switch preference {
-        case .prefer240fps:
-            priority = [
-                "url-4K-SDR-240FPS",
-                "url-4K-HDR-240FPS",
-                "url-4K-SDR",
-                "url-4K-HDR",
-                "url-4K",
-                "url-1080p",
-                "url-1080p-HDR",
-            ]
-        case .prefer4k:
-            priority = [
-                "url-4K-SDR",
-                "url-4K-HDR",
-                "url-4K",
-                "url-4K-SDR-240FPS",
-                "url-4K-HDR-240FPS",
-                "url-1080p",
-                "url-1080p-HDR",
-            ]
-        case .prefer1080:
-            priority = [
-                "url-1080p",
-                "url-1080p-HDR",
-                "url-4K-SDR",
-                "url-4K",
-                "url-4K-HDR",
-                "url-4K-SDR-240FPS",
-                "url-4K-HDR-240FPS",
-            ]
-        }
-
-        for key in priority {
-            if let url = asset.urlVariants[key] { return url }
-        }
-
-        // Fallback: any url-* key, deterministically.
-        // Guard at top ensures urlVariants is non-empty, so sorted()[0] is safe.
-        let sortedKeys = keys.sorted()
-        // The guard at top guarantees non-empty, but use safe subscript pattern.
-        guard let fallbackKey = sortedKeys.first,
-              let fallbackURL = asset.urlVariants[fallbackKey] else {
+        // Return the first available URL deterministically (sorted by key).
+        // In practice, all assets currently only have `url-4K-SDR-240FPS`.
+        let sortedKeys = asset.urlVariants.keys.sorted()
+        guard let firstKey = sortedKeys.first,
+              let url = asset.urlVariants[firstKey] else {
             // Unreachable due to guard at top, but satisfy compiler.
             throw SelectorError.noURLVariants(assetID: asset.id)
         }
-        return fallbackURL
+        return url
     }
 }
 

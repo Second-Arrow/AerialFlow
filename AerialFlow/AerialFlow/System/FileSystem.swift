@@ -14,14 +14,8 @@ protocol FileSystem: Sendable {
 }
 
 struct DefaultFileSystem: FileSystem {
-    private let fm: FileManager
-
-    init(fileManager: FileManager = .default) {
-        self.fm = fileManager
-    }
-
     func fileExists(at url: URL) -> Bool {
-        fm.fileExists(atPath: url.path)
+        FileManager.default.fileExists(atPath: url.path)
     }
 
     func readData(from url: URL) throws -> Data {
@@ -33,18 +27,19 @@ struct DefaultFileSystem: FileSystem {
     }
 
     func createDirectory(at url: URL) throws {
-        try fm.createDirectory(at: url, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     }
 
     func listFiles(in directory: URL) throws -> [URL] {
-        try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
     }
 
     func attributesOfItem(at url: URL) throws -> [FileAttributeKey: Any] {
-        try fm.attributesOfItem(atPath: url.path)
+        try FileManager.default.attributesOfItem(atPath: url.path)
     }
 
     func moveItem(at src: URL, to dst: URL) throws {
+        let fm = FileManager.default
         if fm.fileExists(atPath: dst.path) {
             try fm.removeItem(at: dst)
         }
@@ -52,6 +47,7 @@ struct DefaultFileSystem: FileSystem {
     }
 
     func removeItem(at url: URL) throws {
+        let fm = FileManager.default
         if fm.fileExists(atPath: url.path) {
             try fm.removeItem(at: url)
         }

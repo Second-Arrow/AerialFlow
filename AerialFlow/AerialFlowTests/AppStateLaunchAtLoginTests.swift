@@ -45,12 +45,14 @@ struct AppStateLaunchAtLoginTests {
 
         let manager = FakeLaunchAtLoginManager(status: .disabled)
 
-        let state = await MainActor.run {
+        let state = await MainActor.run { [suiteName] in
+            // `MainActor.run` takes a `@Sendable` closure; avoid capturing `UserDefaults` (non-Sendable).
+            let defaultsForMainActor = UserDefaults(suiteName: suiteName)!
             let dependencies = AppDependencies.live(
-                userDefaults: defaults,
+                userDefaults: defaultsForMainActor,
                 launchAtLoginManager: manager
             )
-            return AppState(dependencies: dependencies, userDefaults: defaults)
+            return AppState(dependencies: dependencies, userDefaults: defaultsForMainActor)
         }
 
         await MainActor.run {
@@ -77,12 +79,14 @@ struct AppStateLaunchAtLoginTests {
         let manager = FakeLaunchAtLoginManager(status: .disabled)
         manager.registerError = FakeLaunchAtLoginManager.FakeError.failed
 
-        let state = await MainActor.run {
+        let state = await MainActor.run { [suiteName] in
+            // `MainActor.run` takes a `@Sendable` closure; avoid capturing `UserDefaults` (non-Sendable).
+            let defaultsForMainActor = UserDefaults(suiteName: suiteName)!
             let dependencies = AppDependencies.live(
-                userDefaults: defaults,
+                userDefaults: defaultsForMainActor,
                 launchAtLoginManager: manager
             )
-            return AppState(dependencies: dependencies, userDefaults: defaults)
+            return AppState(dependencies: dependencies, userDefaults: defaultsForMainActor)
         }
 
         await MainActor.run {

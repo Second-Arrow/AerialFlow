@@ -18,6 +18,7 @@ struct AppDependencies {
     let picker: any AssetPicking
     let urlSelector: any AssetURLSelecting
     let engine: AerialEngine
+    let tipJarPurchaser: any TipJarPurchasing
 
     static func live(
         userDefaults: UserDefaults = .standard,
@@ -45,6 +46,7 @@ struct AppDependencies {
         let launchAtLoginManager = launchAtLoginManager ?? LaunchAtLoginManager()
         let picker: any AssetPicking = AssetPicker()
         let urlSelector: any AssetURLSelecting = AssetURLSelector()
+        let tipJarPurchaser: any TipJarPurchasing = StoreKitTipJarPurchaser()
 
         let engine = AerialEngine(
             catalog: catalog,
@@ -72,7 +74,8 @@ struct AppDependencies {
             launchAtLoginManager: launchAtLoginManager,
             picker: picker,
             urlSelector: urlSelector,
-            engine: engine
+            engine: engine,
+            tipJarPurchaser: tipJarPurchaser
         )
     }
 }

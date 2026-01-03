@@ -6,7 +6,7 @@ import UserNotifications
 
 @MainActor
 final class AppState: ObservableObject {
-    private let logger = Logger(subsystem: "com.secondarrow.AerialFlow", category: "AppState")
+    private let logger = Logger(subsystem: Constants.loggerSubsystem, category: "AppState")
 
     private let userDefaults: UserDefaults
     private let fileSystem: any FileSystem
@@ -21,6 +21,7 @@ final class AppState: ObservableObject {
     private let hotkeyBinder: any HotkeyBinding
     private let launchAtLoginManager: any LaunchAtLoginManaging
     private let engine: AerialEngine
+    private let tipJarPurchaserImpl: any TipJarPurchasing
     private var didRequestNotificationAuthorization = false
 
     private lazy var rotationController: RotationController = {
@@ -43,26 +44,21 @@ final class AppState: ObservableObject {
         }
     }
 
+    enum SettingsTab: Hashable, Sendable {
+        case general
+        case rotation
+        case categories
+        case hotkeys
+        case diagnostics
+        case about
+    }
+
+    @Published var selectedSettingsTab: SettingsTab = .general
+
     @Published private(set) var isBusy: Bool
     @Published private(set) var statusLine: String
     @Published private(set) var lastErrorMessage: String?
     @Published private(set) var launchAtLoginErrorMessage: String?
-
-    struct DiagnosticsSnapshot: Sendable, Equatable {
-        let detectedVideoDirectory: URL?
-        let currentMovPath: URL?
-        let lastAssetID: String?
-        let lastChange: Date?
-        let backupCount: Int
-        let recentBackupFileNames: [String]
-
-        var lastChangeDescription: String? {
-            guard let lastChange else { return nil }
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            return formatter.string(from: lastChange)
-        }
-    }
 
     init(dependencies: AppDependencies, userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
@@ -86,14 +82,25 @@ final class AppState: ObservableObject {
         self.hotkeyBinder = dependencies.hotkeyBinder
         self.launchAtLoginManager = dependencies.launchAtLoginManager
         self.engine = dependencies.engine
+        self.tipJarPurchaserImpl = dependencies.tipJarPurchaser
 
         reconcileLaunchAtLoginSetting()
         bindHotkeys()
         Task { await rotationController.start() }
+        
+        // Update status line with current asset name if available
+        Task {
+            if let lastAssetID = await stateStore.getLastAssetID(), !lastAssetID.isEmpty {
+                if let displayName = await assetDisplayName(for: lastAssetID) {
+                    statusLine = displayName
+                }
+            }
+        }
     }
 
     var isRotationEnabled: Bool { settings.isRotationEnabled }
     var isPaused: Bool { !settings.isRotationEnabled }
+    var tipJarPurchaser: any TipJarPurchasing { tipJarPurchaserImpl }
 
     func setRotationEnabled(_ enabled: Bool) {
         guard settings.isRotationEnabled != enabled else { return }
@@ -147,11 +154,8 @@ final class AppState: ObservableObject {
 
         do {
             let report = try await engine.next(settings: settings)
-            var parts: [String] = []
-            parts.append("Applied.")
-            if report.didDownload { parts.append("Downloaded.") }
-            parts.append("Updated \(report.updatedProviderNodes) nodes.")
-            statusLine = parts.joined(separator: " ")
+            let displayName = await assetDisplayName(for: report.chosenAssetID) ?? report.chosenAssetID
+            statusLine = displayName
             await rotationController.notifyStateChanged()
         } catch {
             let message = error.localizedDescription
@@ -169,7 +173,9 @@ final class AppState: ObservableObject {
         defer { isBusy = false }
 
         do {
-            _ = try await engine.next(settings: settings)
+            let report = try await engine.next(settings: settings)
+            let displayName = await assetDisplayName(for: report.chosenAssetID) ?? report.chosenAssetID
+            statusLine = displayName
             await rotationController.notifyStateChanged()
         } catch {
             let message = error.localizedDescription
@@ -216,8 +222,8 @@ final class AppState: ObservableObject {
         try await catalog.loadSnapshot()
     }
 
-    func categoryDisplayNamesByID(categories: [AerialCategory]) -> [String: String] {
-        let idToNames = categoryResolver.categoryIDToNames(categories: categories)
+    func categoryDisplayNamesByID(categories: [AerialCategory]) async -> [String: String] {
+        let idToNames = await categoryResolver.categoryIDToNames(categories: categories)
         var out: [String: String] = [:]
         out.reserveCapacity(categories.count)
 
@@ -231,6 +237,42 @@ final class AppState: ObservableObject {
         }
 
         return out
+    }
+
+    /// Returns the subcategory IDs of the currently active aerial asset.
+    /// Returns an empty set if no current asset or if the asset is not found in the catalog.
+    func currentSubcategoryIDs() async -> Set<String> {
+        guard let lastAssetID = await stateStore.getLastAssetID(), !lastAssetID.isEmpty else {
+            return []
+        }
+
+        do {
+            let snapshot = try await loadCatalogSnapshot()
+            if let asset = snapshot.assets.first(where: { $0.id == lastAssetID }) {
+                return Set(asset.subcategories)
+            }
+            return []
+        } catch {
+            logger.debug("Failed to load catalog for current subcategory IDs: \(String(describing: error), privacy: .public)")
+            return []
+        }
+    }
+
+    /// Resolves an asset ID to a human-readable display name.
+    /// Returns the asset's localized name (via TVIdleScreenStrings) if available, otherwise falls back to the asset ID.
+    private func assetDisplayName(for assetID: String) async -> String? {
+        guard !assetID.isEmpty else { return nil }
+
+        do {
+            let snapshot = try await loadCatalogSnapshot()
+            if let asset = snapshot.assets.first(where: { $0.id == assetID }) {
+                return await categoryResolver.assetName(for: asset) ?? assetID
+            }
+            return await categoryResolver.assetName(for: assetID) ?? assetID
+        } catch {
+            logger.debug("Failed to resolve asset display name for \(assetID, privacy: .public): \(String(describing: error), privacy: .public)")
+            return assetID
+        }
     }
 
     func inspectAerialConfiguration() throws -> WallpaperStoreEditor.AerialConfigurationStatus {
@@ -248,17 +290,6 @@ final class AppState: ObservableObject {
         return report
     }
 
-    func openSystemSettingsForWallpaper() {
-        let workspace = NSWorkspace.shared
-        if let url = URL(string: "x-apple.systempreferences:com.apple.Wallpaper-Settings.extension"),
-           workspace.open(url) {
-            return
-        }
-        if let url = URL(string: "x-apple.systempreferences:") {
-            _ = workspace.open(url)
-        }
-    }
-
     func loadDiagnosticsSnapshot() async throws -> DiagnosticsSnapshot {
         let indexPlistURL = settings.indexPlistURL
         let fileSystem = self.fileSystem
@@ -266,19 +297,33 @@ final class AppState: ObservableObject {
 
         async let lastAssetID = stateStore.getLastAssetID()
         async let lastChange = stateStore.getLastChange()
+        async let nextScheduledChangeDate = rotationController.nextScheduledChangeDate()
 
         let detection = try detector.detect()
         let backups = Self.findIndexPlistBackups(fileSystem: fileSystem, indexPlistURL: indexPlistURL)
 
         let recentNames = backups.prefix(5).map(\.lastPathComponent)
+        
+        let storageUsedBytes = Self.calculateStorageUsed(fileSystem: fileSystem, videoDirectory: detection.videoDirectory)
+        
+        let resolvedLastAssetID = await lastAssetID
+        
+        // Fallback: if process detection didn't find a mov path, try to construct it from last asset ID
+        let currentMovPath = detection.currentMovPath ?? Self.fallbackMovPath(
+            fileSystem: fileSystem,
+            videoDirectory: detection.videoDirectory,
+            lastAssetID: resolvedLastAssetID
+        )
 
         return DiagnosticsSnapshot(
             detectedVideoDirectory: detection.videoDirectory,
-            currentMovPath: detection.currentMovPath,
-            lastAssetID: await lastAssetID,
+            currentMovPath: currentMovPath,
+            lastAssetID: resolvedLastAssetID,
             lastChange: await lastChange,
+            nextScheduledChangeDate: await nextScheduledChangeDate,
             backupCount: backups.count,
-            recentBackupFileNames: recentNames
+            recentBackupFileNames: recentNames,
+            storageUsedBytes: storageUsedBytes
         )
     }
 
@@ -303,18 +348,61 @@ final class AppState: ObservableObject {
         return backups.sorted { $0.lastPathComponent > $1.lastPathComponent }
     }
 
+    nonisolated static func fallbackMovPath(fileSystem: any FileSystem, videoDirectory: URL, lastAssetID: String?) -> URL? {
+        guard let assetID = lastAssetID, !assetID.isEmpty else { return nil }
+        let movPath = videoDirectory.appendingPathComponent("\(assetID).mov")
+        guard fileSystem.fileExists(at: movPath) else { return nil }
+        return movPath
+    }
+
+    nonisolated static func calculateStorageUsed(fileSystem: any FileSystem, videoDirectory: URL) -> Int64? {
+        guard fileSystem.fileExists(at: videoDirectory) else {
+            return nil
+        }
+
+        let files: [URL]
+        do {
+            files = try fileSystem.listFiles(in: videoDirectory)
+        } catch {
+            return nil
+        }
+
+        // Filter for .mov files, excluding .part files
+        let movFiles = files.filter { url in
+            let name = url.lastPathComponent
+            return name.hasSuffix(".mov") && !name.hasPrefix(".")
+        }
+
+        var totalBytes: Int64 = 0
+        for file in movFiles {
+            do {
+                let size = try fileSystem.fileSize(at: file)
+                totalBytes += size
+            } catch {
+                // Skip files we can't read the size of
+                continue
+            }
+        }
+
+        return totalBytes
+    }
+
     private func desiredAssetIDForConfigurationRepair() async throws -> String {
         if let last = await stateStore.getLastAssetID(), !last.isEmpty {
             return last
         }
 
         let snapshot = try await loadCatalogSnapshot()
-        let excluded = settings.excludedCategoryIDs
+        let excludedMain = settings.excludedCategoryIDs
+        let excludedSub = settings.excludedSubcategoryIDs
         let eligible = snapshot.assets
             .filter { asset in
                 guard !asset.id.isEmpty else { return false }
-                if excluded.isEmpty { return true }
-                return excluded.isDisjoint(with: Set(asset.categories))
+                if excludedMain.isEmpty, excludedSub.isEmpty { return true }
+                return !asset.isExcluded(
+                    excludedMainCategoryIDs: excludedMain,
+                    excludedSubcategoryIDs: excludedSub
+                )
             }
             .sorted { $0.id < $1.id }
 

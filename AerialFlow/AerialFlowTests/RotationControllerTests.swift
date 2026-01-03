@@ -3,37 +3,10 @@ import Testing
 @testable import AerialFlow
 
 struct RotationControllerTests {
-    private actor StateStore: AerialEngineStateStore {
-        private var lastChange: Date?
-
-        init(lastChange: Date?) {
-            self.lastChange = lastChange
-        }
-
-        func getLastAssetID() async -> String? { nil }
-        func setLastAssetID(_ id: String?) async { _ = id }
-        func getLastChange() async -> Date? { lastChange }
-        func setLastChange(_ date: Date?) async { lastChange = date }
-    }
-
-    private struct AlwaysRunGuard: RunGuarding {
-        func shouldRunNow(settings: any RunGuardSettings) -> Bool {
-            _ = settings
-            return true
-        }
-    }
-
-    private struct NeverRunGuard: RunGuarding {
-        func shouldRunNow(settings: any RunGuardSettings) -> Bool {
-            _ = settings
-            return false
-        }
-    }
-
     @Test func testDue_invokesOnDue() async {
         let now = Date(timeIntervalSince1970: 1_000)
         let lastChange = now.addingTimeInterval(-600)
-        let store = StateStore(lastChange: lastChange)
+        let store = FakeEngineStateStore(lastChange: lastChange)
 
         let counter = Counter()
         let controller = RotationController(
@@ -51,7 +24,7 @@ struct RotationControllerTests {
     @Test func testNotDue_doesNotInvokeOnDue() async {
         let now = Date(timeIntervalSince1970: 1_000)
         let lastChange = now.addingTimeInterval(-100)
-        let store = StateStore(lastChange: lastChange)
+        let store = FakeEngineStateStore(lastChange: lastChange)
 
         let counter = Counter()
         let controller = RotationController(
@@ -69,7 +42,7 @@ struct RotationControllerTests {
     @Test func testRotationDisabled_doesNotInvokeOnDue() async {
         let now = Date(timeIntervalSince1970: 1_000)
         let lastChange = now.addingTimeInterval(-10_000)
-        let store = StateStore(lastChange: lastChange)
+        let store = FakeEngineStateStore(lastChange: lastChange)
 
         let counter = Counter()
         let controller = RotationController(
@@ -87,7 +60,7 @@ struct RotationControllerTests {
     @Test func testRunGuardFalse_doesNotInvokeOnDue() async {
         let now = Date(timeIntervalSince1970: 1_000)
         let lastChange = now.addingTimeInterval(-10_000)
-        let store = StateStore(lastChange: lastChange)
+        let store = FakeEngineStateStore(lastChange: lastChange)
 
         let counter = Counter()
         let controller = RotationController(
@@ -108,7 +81,7 @@ struct RotationControllerTests {
 
     @Test func testLastChangeNil_waitsFullInterval() async {
         let now = Date(timeIntervalSince1970: 1_000)
-        let store = StateStore(lastChange: nil)
+        let store = FakeEngineStateStore(lastChange: nil)
 
         let counter = Counter()
         let controller = RotationController(
@@ -126,10 +99,4 @@ struct RotationControllerTests {
         #expect(next == now.addingTimeInterval(600))
     }
 }
-
-private actor Counter {
-    private(set) var value: Int = 0
-    func increment() { value += 1 }
-}
-
 
