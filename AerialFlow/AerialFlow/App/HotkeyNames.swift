@@ -7,6 +7,11 @@ extension KeyboardShortcuts.Name {
         default: KeyboardShortcuts.Shortcut(.n, modifiers: [.command, .option])
     )
 
+    static let excludeCurrentSubcategoryAndNext = Self(
+        "excludeCurrentSubcategoryAndNext",
+        default: KeyboardShortcuts.Shortcut(.e, modifiers: [.command, .option])
+    )
+
     static let togglePause = Self(
         "togglePause",
         default: KeyboardShortcuts.Shortcut(.p, modifiers: [.command, .option])

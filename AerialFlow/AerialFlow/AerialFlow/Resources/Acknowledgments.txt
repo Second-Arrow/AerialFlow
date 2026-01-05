@@ -1,0 +1,9 @@
+This application includes the following third‑party software:
+
+- KeyboardShortcuts 2.4.0
+  https://github.com/sindresorhus/KeyboardShortcuts
+
+Third‑party components are the property of their respective owners.
+Please see the linked repositories for license and copyright details.
+
+

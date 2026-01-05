@@ -5,6 +5,10 @@ enum Constants {
     /// The subsystem identifier used for all Logger instances.
     static let loggerSubsystem = "com.secondarrow.AerialFlow"
 
+    // MARK: - Support
+
+    static let supportURL = URL(string: "https://buymeacoffee.com/second.arrow")
+
     // MARK: - File Size Thresholds
 
     /// Minimum file size (bytes) to consider an asset video "present" and not corrupted.

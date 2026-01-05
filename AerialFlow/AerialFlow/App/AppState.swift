@@ -6,6 +6,17 @@ import UserNotifications
 
 @MainActor
 final class AppState: ObservableObject {
+    private enum NextAerialError: LocalizedError {
+        case busy
+
+        var errorDescription: String? {
+            switch self {
+            case .busy:
+                return "AerialFlow is busy."
+            }
+        }
+    }
+
     private let logger = Logger(subsystem: Constants.loggerSubsystem, category: "AppState")
 
     private let userDefaults: UserDefaults
@@ -21,7 +32,6 @@ final class AppState: ObservableObject {
     private let hotkeyBinder: any HotkeyBinding
     private let launchAtLoginManager: any LaunchAtLoginManaging
     private let engine: AerialEngine
-    private let tipJarPurchaserImpl: any TipJarPurchasing
     private var didRequestNotificationAuthorization = false
 
     private lazy var rotationController: RotationController = {
@@ -82,7 +92,6 @@ final class AppState: ObservableObject {
         self.hotkeyBinder = dependencies.hotkeyBinder
         self.launchAtLoginManager = dependencies.launchAtLoginManager
         self.engine = dependencies.engine
-        self.tipJarPurchaserImpl = dependencies.tipJarPurchaser
 
         reconcileLaunchAtLoginSetting()
         bindHotkeys()
@@ -100,7 +109,6 @@ final class AppState: ObservableObject {
 
     var isRotationEnabled: Bool { settings.isRotationEnabled }
     var isPaused: Bool { !settings.isRotationEnabled }
-    var tipJarPurchaser: any TipJarPurchasing { tipJarPurchaserImpl }
 
     func setRotationEnabled(_ enabled: Bool) {
         guard settings.isRotationEnabled != enabled else { return }
@@ -145,31 +153,25 @@ final class AppState: ObservableObject {
     }
 
     func nextAerial() async {
-        guard !isBusy else { return }
-
-        isBusy = true
-        lastErrorMessage = nil
-        statusLine = "Applying next Aerial…"
-        defer { isBusy = false }
-
-        do {
-            let report = try await engine.next(settings: settings)
-            let displayName = await assetDisplayName(for: report.chosenAssetID) ?? report.chosenAssetID
-            statusLine = displayName
-            await rotationController.notifyStateChanged()
-        } catch {
-            let message = error.localizedDescription
-            lastErrorMessage = message
-            statusLine = "Error: \(message)"
-            logger.error("Next Aerial failed: \(message, privacy: .public)")
-            await postErrorNotificationIfPossible(message)
-        }
+        _ = await performNextAerial(isUserInitiated: true, logContext: "Next Aerial")
     }
 
     private func scheduledNextAerial() async {
-        guard !isBusy else { return }
+        _ = await performNextAerial(isUserInitiated: false, logContext: "Scheduled rotation")
+    }
+
+    /// Advances to the next Aerial.
+    /// - Parameters:
+    ///   - isUserInitiated: If true, clears error state beforehand and posts notifications on failure.
+    ///   - logContext: Context string for error logging (e.g., "Next Aerial" or "Scheduled rotation").
+    private func performNextAerial(isUserInitiated: Bool, logContext: String) async -> Result<AerialEngine.Report, Error> {
+        guard !isBusy else { return .failure(NextAerialError.busy) }
 
         isBusy = true
+        if isUserInitiated {
+            lastErrorMessage = nil
+            statusLine = "Applying next Aerial…"
+        }
         defer { isBusy = false }
 
         do {
@@ -177,18 +179,41 @@ final class AppState: ObservableObject {
             let displayName = await assetDisplayName(for: report.chosenAssetID) ?? report.chosenAssetID
             statusLine = displayName
             await rotationController.notifyStateChanged()
+            return .success(report)
         } catch {
             let message = error.localizedDescription
             lastErrorMessage = message
             statusLine = "Error: \(message)"
-            logger.error("Scheduled rotation failed: \(message, privacy: .public)")
+            logger.error("\(logContext) failed: \(message, privacy: .public)")
+            if isUserInitiated {
+                await postErrorNotificationIfPossible(message)
+            }
+            return .failure(error)
+        }
+    }
+
+    func excludeCurrentSubcategoryAndNext() async {
+        guard !isBusy else { return }
+        let ids = await currentSubcategoryIDs()
+        let previous = settings.excludedSubcategoryIDs
+
+        if !ids.isEmpty {
+            var updated = settings.excludedSubcategoryIDs
+            updated.formUnion(ids)
+            settings.excludedSubcategoryIDs = updated
+        }
+
+        let result = await performNextAerial(isUserInitiated: true, logContext: "Exclude current subcategory + Next")
+        if case .failure(let error) = result,
+           let pickerError = error as? AssetPicker.PickerError,
+           case .noEligibleAssets = pickerError {
+            settings.excludedSubcategoryIDs = previous
         }
     }
 
     func goToScreensaver() {
         do {
             try screensaverLauncher.start()
-            statusLine = "Starting screensaver…"
         } catch {
             let message = error.localizedDescription
             lastErrorMessage = message
@@ -201,6 +226,11 @@ final class AppState: ObservableObject {
         hotkeyBinder.onKeyUp(for: .nextAerial) { [weak self] in
             guard let self else { return }
             Task { await self.nextAerial() }
+        }
+
+        hotkeyBinder.onKeyUp(for: .excludeCurrentSubcategoryAndNext) { [weak self] in
+            guard let self else { return }
+            Task { await self.excludeCurrentSubcategoryAndNext() }
         }
 
         hotkeyBinder.onKeyUp(for: .togglePause) { [weak self] in

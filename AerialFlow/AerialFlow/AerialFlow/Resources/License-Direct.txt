@@ -1,0 +1,9 @@
+Copyright (c) 2026 Second Arrow
+All rights reserved.
+
+This copy of AerialFlow is distributed directly (outside the Apple App Store).
+
+Permission is granted to install and use the app for personal use. You may not copy, redistribute,
+sell, sublicense, rent, lease, modify, or create derivative works of the app except as required by
+applicable law or as separately agreed in writing.
+

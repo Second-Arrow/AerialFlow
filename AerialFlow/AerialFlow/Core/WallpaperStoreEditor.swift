@@ -480,12 +480,19 @@ struct WallpaperStoreEditor: Sendable {
         }
     }
 
-    private static func timestampString(for date: Date) -> String {
+    private static let timestampFormatterLock = NSLock()
+    private static let timestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyyMMdd-HHmmss"
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private static func timestampString(for date: Date) -> String {
+        timestampFormatterLock.lock()
+        defer { timestampFormatterLock.unlock() }
+        return timestampFormatter.string(from: date)
     }
 }
 

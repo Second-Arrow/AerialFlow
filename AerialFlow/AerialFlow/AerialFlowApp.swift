@@ -8,8 +8,45 @@
 import SwiftUI
 import AppKit
 
+private struct MenuBarIcon: View {
+    @ObservedObject var appState: AppState
+
+    private var icon: NSImage {
+        let size = NSSize(width: 26, height: 26)
+        let image = NSImage(size: size, flipped: false) { rect in
+            let windSize: CGFloat = appState.isPaused ? 22 : 24;
+
+            // Draw wind icon (slightly smaller, centered)
+            if let windSymbol = NSImage(systemSymbolName: "wind", accessibilityDescription: nil) {
+                let windConfig = NSImage.SymbolConfiguration(pointSize: windSize, weight: .regular)
+                let configuredWind = windSymbol.withSymbolConfiguration(windConfig) ?? windSymbol
+                let inset: CGFloat = appState.isPaused ? 5 : 3;
+                let windRect = rect.insetBy(dx: inset, dy: inset)
+                configuredWind.draw(in: windRect)
+            }
+
+            // Draw forbidden overlay when paused (fills the full frame)
+            if appState.isPaused,
+               let nosignSymbol = NSImage(systemSymbolName: "nosign", accessibilityDescription: nil) {
+                let config = NSImage.SymbolConfiguration(pointSize: 26, weight: .regular)
+                if let configured = nosignSymbol.withSymbolConfiguration(config) {
+                    configured.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 0.85)
+                }
+            }
+
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    var body: some View {
+        Image(nsImage: icon)
+    }
+}
+
 private struct MenuBarContents: View {
-    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @ObservedObject var appState: AppState
 
     var body: some View {
@@ -34,13 +71,12 @@ private struct MenuBarContents: View {
 
         Divider()
 
-        Button("About") {
-            appState.selectedSettingsTab = .about
-            openSettings()
+        SettingsLink {
+            Text("Settings")
         }
 
-        SettingsLink {
-            Text("Open Settings")
+        Button("About AerialFlow") {
+            openWindow(id: "about")
         }
 
         Divider()
@@ -53,17 +89,19 @@ private struct MenuBarContents: View {
 
 private struct SupportCommands: Commands {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openURL) private var openURL
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About AerialFlow") {
-                NSApplication.shared.orderFrontStandardAboutPanel(nil)
+                openWindow(id: "about")
             }
         }
 
         CommandMenu("Support") {
             Button("Support Development…") {
-                openWindow(id: "supportDevelopment")
+                guard let url = Constants.supportURL else { return }
+                openURL(url)
             }
         }
     }
@@ -82,8 +120,7 @@ struct AerialFlowApp: App {
         MenuBarExtra {
             MenuBarContents(appState: appState)
         } label: {
-            let icon = appState.isPaused ? "pause.fill" : "airplane"
-            Label("AerialFlow", systemImage: icon)
+            MenuBarIcon(appState: appState)
         }
         .commands {
             SupportCommands()
@@ -94,16 +131,9 @@ struct AerialFlowApp: App {
                 .environmentObject(appState)
         }
 
-        Window("Support Development", id: "supportDevelopment") {
-            TipJarView(
-                purchaser: appState.tipJarPurchaser,
-                productIDs: [
-                    "com.secondarrow.AerialFlow.tip.small",
-                    "com.secondarrow.AerialFlow.tip.coffee",
-                    "com.secondarrow.AerialFlow.tip.lunch",
-                    "com.secondarrow.AerialFlow.tip.bigThanks"
-                ]
-            )
+        Window("About AerialFlow", id: "about") {
+            AboutWindowView()
         }
+        .windowResizability(.contentSize)
     }
 }

@@ -1,23 +1,52 @@
 import SwiftUI
+import AppKit
 import KeyboardShortcuts
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.openURL) private var openURL
     @State private var categorySearchText: String = ""
     @State private var catalogSnapshot: AerialCatalog.Snapshot?
     @State private var catalogErrorMessage: String?
     @State private var categoryDisplayNameByID: [String: String] = [:]
     @State private var isPickingIndexPlist: Bool = false
+    @State private var indexPlistPickerError: String?
     @State private var currentSubcategoryIDs: Set<String> = []
-    @State private var isShowingTipJar: Bool = false
+    @State private var settingsWindow: NSWindow?
+    @State private var isAdvancedExpanded: Bool = false
 
-    private let tipProductIDs: [String] = [
-        "com.secondarrow.AerialFlow.tip.small",
-        "com.secondarrow.AerialFlow.tip.coffee",
-        "com.secondarrow.AerialFlow.tip.lunch",
-        "com.secondarrow.AerialFlow.tip.bigThanks"
-    ]
+    private var currentTabName: String {
+        switch appState.selectedSettingsTab {
+        case .general: return "General"
+        case .rotation: return "Rotation"
+        case .categories: return "Categories"
+        case .hotkeys: return "Hotkeys"
+        case .diagnostics: return "Diagnostics"
+        case .about: return "About"
+        }
+    }
+
+    private func updateWindowTitle() {
+        // SwiftUI / AppKit may set the title to the active tab label after the selection changes
+        // (especially on first load). Set our title on the next runloop tick, then once more
+        // shortly after to ensure it “wins”.
+        let desiredTitle = "AerialFlow - \(currentTabName)"
+
+        DispatchQueue.main.async {
+            guard let window = settingsWindow else { return }
+            if window.title != desiredTitle {
+                window.title = desiredTitle
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { [weak window] in
+                guard let window else { return }
+                if window.title != desiredTitle {
+                    window.title = desiredTitle
+                }
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -42,7 +71,7 @@ struct SettingsView: View {
                     .tabItem { Label("Diagnostics", systemImage: "stethoscope") }
                     .tag(AppState.SettingsTab.diagnostics)
 
-                pane(AboutView())
+                pane(AboutView(), contentAlignment: .center)
                     .tabItem { Label("About", systemImage: "info.circle") }
                     .tag(AppState.SettingsTab.about)
             }
@@ -63,15 +92,25 @@ struct SettingsView: View {
                     )
 
                 Button("Support Development…") {
-                    isShowingTipJar = true
+                    guard let url = Constants.supportURL else { return }
+                    openURL(url)
                 }
                 .font(.footnote)
             }
         }
         .padding(20)
         .frame(width: 640, height: 560)
-        .sheet(isPresented: $isShowingTipJar) {
-            TipJarView(purchaser: appState.tipJarPurchaser, productIDs: tipProductIDs)
+        .background(SettingsWindowAccessor { window in
+            if settingsWindow !== window {
+                settingsWindow = window
+                updateWindowTitle()
+            }
+        })
+        .onChange(of: appState.selectedSettingsTab) { _, _ in
+            updateWindowTitle()
+        }
+        .onAppear {
+            updateWindowTitle()
         }
         .task {
             guard catalogSnapshot == nil, catalogErrorMessage == nil else { return }
@@ -103,9 +142,16 @@ struct SettingsView: View {
                 guard let url = urls.first else { return }
                 appState.settings.indexPlistURL = url
             case .failure(let error):
-                // Error handling for Index.plist selection
-                _ = error
+                indexPlistPickerError = error.localizedDescription
             }
+        }
+        .alert("Couldn't Select File", isPresented: Binding(
+            get: { indexPlistPickerError != nil },
+            set: { if !$0 { indexPlistPickerError = nil } }
+        )) {
+            Button("OK") { indexPlistPickerError = nil }
+        } message: {
+            Text(indexPlistPickerError ?? "Unknown error")
         }
     }
 
@@ -181,7 +227,7 @@ struct SettingsView: View {
             )
 
             VStack(alignment: .leading, spacing: 10) {
-                DisclosureGroup("Advanced") {
+                DisclosureGroup(isExpanded: $isAdvancedExpanded) {
                     SettingsRow("Download timeout") {
                         Stepper(value: timeoutMinutesBinding, in: 1...120, step: 1) {
                             Text("\(timeoutMinutesBinding.wrappedValue) min")
@@ -216,6 +262,12 @@ struct SettingsView: View {
                         }
                     }
                     .help("How many Index.plist backups AerialFlow keeps next to the original. Older backups are pruned automatically.")
+                } label: {
+                    Text("Advanced")
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            isAdvancedExpanded.toggle()
+                        }
                 }
             }
         }
@@ -320,6 +372,11 @@ struct SettingsView: View {
             }
             .help("Immediately switch to the next Aerial wallpaper.")
 
+            SettingsRow("Exclude current subcategory + Next") {
+                KeyboardShortcuts.Recorder("", name: .excludeCurrentSubcategoryAndNext)
+            }
+            .help("Exclude the current Aerial’s subcategory and immediately switch to the next eligible Aerial.")
+
             SettingsRow("Pause / Continue") {
                 KeyboardShortcuts.Recorder("", name: .togglePause)
             }
@@ -338,140 +395,33 @@ struct SettingsView: View {
 
 
     @ViewBuilder
-    private func pane<Content: View>(_ content: Content) -> some View {
+    private func pane<Content: View>(_ content: Content, contentAlignment: Alignment = .leading) -> some View {
         ScrollView {
             content
-                .frame(maxWidth: 560, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: 560, alignment: contentAlignment)
+                .frame(maxWidth: .infinity, alignment: contentAlignment)
                 .padding(.top, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
+private struct SettingsWindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow) -> Void
 
-private struct CategoryRow: Hashable, Sendable {
-    let category: AerialCategory
-    let depth: Int
-    let rootMainCategoryID: String
-
-    var id: String { category.id }
-    var isMainCategory: Bool { depth == 0 }
-
-    static func rows(fromMainCategories categories: [AerialCategory]) -> [CategoryRow] {
-        var out: [CategoryRow] = []
-        out.reserveCapacity(categories.count)
-
-        for main in categories {
-            guard !main.id.isEmpty else { continue }
-            out.append(CategoryRow(category: main, depth: 0, rootMainCategoryID: main.id))
-            appendSubcategories(of: main, depth: 1, rootMainCategoryID: main.id, into: &out)
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { [weak view] in
+            guard let window = view?.window else { return }
+            onResolve(window)
         }
-
-        return out
+        return view
     }
 
-    private static func appendSubcategories(
-        of category: AerialCategory,
-        depth: Int,
-        rootMainCategoryID: String,
-        into out: inout [CategoryRow]
-    ) {
-        for sub in category.subcategories.sorted(by: AerialCategory.sortByPreferredOrderThenID) {
-            guard !sub.id.isEmpty else { continue }
-            out.append(CategoryRow(category: sub, depth: depth, rootMainCategoryID: rootMainCategoryID))
-            appendSubcategories(of: sub, depth: depth + 1, rootMainCategoryID: rootMainCategoryID, into: &out)
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { [weak nsView] in
+            guard let window = nsView?.window else { return }
+            onResolve(window)
         }
     }
 }
-
-private struct ExcludedCategoriesPicker: View {
-    let rows: [CategoryRow]
-    let categoryDisplayNameByID: [String: String]
-    @Binding var excludedCategoryIDs: Set<String>
-    @Binding var excludedSubcategoryIDs: Set<String>
-    @Binding var searchText: String
-    let currentSubcategoryIDs: Set<String>
-
-    var body: some View {
-        SettingsRow("Search") {
-            TextField("Category name", text: $searchText)
-                .textFieldStyle(.roundedBorder)
-        }
-
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(filteredRows, id: \.self) { row in
-                Toggle(isOn: bindingForRow(row)) {
-                    HStack(spacing: 8) {
-                        Color.clear
-                            .frame(width: CGFloat(row.depth) * 14)
-                        Text(displayName(for: row.category))
-                        Spacer()
-                        if row.depth > 0 && currentSubcategoryIDs.contains(row.category.id) {
-                            Text("current")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color(nsColor: .quaternaryLabelColor).opacity(0.3))
-                                .clipShape(RoundedRectangle(cornerRadius: 4))
-                        }
-                    }
-                }
-                .disabled(row.depth > 0 && excludedCategoryIDs.contains(row.rootMainCategoryID))
-                .help("When enabled, this category will never be selected.")
-                .padding(.vertical, 6)
-
-                Divider()
-            }
-        }
-        .padding(.horizontal, 10)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-
-    private var filteredRows: [CategoryRow] {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return rows
-        }
-
-        let lower = trimmed.lowercased()
-        return rows
-            .filter { row in
-                let name = displayName(for: row.category).lowercased()
-                return name.contains(lower) || row.category.id.lowercased().contains(lower)
-            }
-    }
-
-    private func displayName(for category: AerialCategory) -> String {
-        categoryDisplayNameByID[category.id] ?? category.id
-    }
-
-    private func bindingForRow(_ row: CategoryRow) -> Binding<Bool> {
-        if row.isMainCategory {
-            return Binding(
-                get: { excludedCategoryIDs.contains(row.id) },
-                set: { isExcluded in
-                    if isExcluded {
-                        excludedCategoryIDs.insert(row.id)
-                    } else {
-                        excludedCategoryIDs.remove(row.id)
-                    }
-                }
-            )
-        }
-
-        return Binding(
-            get: { excludedSubcategoryIDs.contains(row.id) },
-            set: { isExcluded in
-                if isExcluded {
-                    excludedSubcategoryIDs.insert(row.id)
-                } else {
-                    excludedSubcategoryIDs.remove(row.id)
-                }
-            }
-        )
-    }
-}
-

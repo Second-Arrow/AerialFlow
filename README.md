@@ -118,6 +118,65 @@ xcodebuild -project AerialFlow/AerialFlow.xcodeproj \
 open AerialFlow/AerialFlow.xcodeproj
 ```
 
+## Releasing (website DMG, scripted)
+
+This repo intentionally **skips App Store distribution**. Releases are produced as a **Developer ID–signed + notarized universal DMG** via scripts.
+
+## Local unsigned builds (no Apple Developer account)
+
+If you don’t have a Developer ID / notarization set up yet, you can still build and run locally.
+
+Build an **unsigned universal** `.app` into `dist/unsigned/`:
+
+```bash
+bash Scripts/build_unsigned.sh
+```
+
+Optional: create an **unsigned DMG**:
+
+```bash
+bash Scripts/build_unsigned.sh --dmg
+```
+
+Optional: copy into an install directory (may require `sudo` for `/Applications`):
+
+```bash
+bash Scripts/build_unsigned.sh --install-to "/Applications"
+```
+
+### One-time setup (notarytool keychain profile)
+
+Create a `notarytool` keychain profile on the machine that will build releases:
+
+```bash
+xcrun notarytool store-credentials "AerialFlowNotary" \
+  --apple-id "<your-apple-id>" \
+  --team-id "<your-team-id>" \
+  --password "<app-specific-password>"
+```
+
+### Build a notarized DMG
+
+Run the release script from the repo root:
+
+```bash
+bash Scripts/release_dmg.sh --notary-profile "AerialFlowNotary"
+```
+
+Optional: specify a signing identity explicitly:
+
+```bash
+bash Scripts/release_dmg.sh \
+  --notary-profile "AerialFlowNotary" \
+  --identity "Developer ID Application: <Name> (<TEAMID>)"
+```
+
+### Output
+
+Artifacts are written to:
+- `dist/*.dmg`
+- `dist/*.dmg.sha256.txt`
+
 ### Testing
 
 ```bash
@@ -170,7 +229,10 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 
 ## License
 
-This project is open source and available under the [MIT License](LICENSE).
+When distributed via the Apple App Store, AerialFlow is licensed under the Apple Standard End User License
+Agreement (EULA), as presented in the App Store.
+
+This repository is not licensed as open source.
 
 Copyright (c) 2026 [Second Arrow](https://github.com/second-arrow)
 

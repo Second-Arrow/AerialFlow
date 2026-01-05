@@ -90,28 +90,3 @@ protocol LaunchAtLoginManaging: Sendable {
     func unregister() throws
 }
 
-// MARK: - Tip Jar (StoreKit)
-
-/// The UI-facing representation of an in-app purchase “tip” product.
-struct TipJarProduct: Sendable, Equatable, Identifiable {
-    let id: String
-    let displayName: String
-    let displayPrice: String
-    let sortKey: Int
-}
-
-enum TipJarPurchaseOutcome: Sendable, Equatable {
-    case success
-    case pending
-    case userCancelled
-    case failed(message: String)
-}
-
-/// StoreKit boundary for the “Support Development” Tip Jar.
-///
-/// - Note: Implementations should use StoreKit 2 and finish consumable transactions.
-protocol TipJarPurchasing: Sendable {
-    func fetchProducts(productIDs: [String]) async throws -> [TipJarProduct]
-    func purchase(productID: String) async -> TipJarPurchaseOutcome
-}
-

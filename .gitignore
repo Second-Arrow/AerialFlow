@@ -124,3 +124,6 @@ Temporary Items
 .tmp/
 
 .xcresult/
+
+# Local release artifacts
+dist/

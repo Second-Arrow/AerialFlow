@@ -5,6 +5,7 @@ struct DiagnosticsView: View {
 
     @State private var snapshot: DiagnosticsSnapshot?
     @State private var snapshotErrorMessage: String?
+    @State private var isBackupsExpanded: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -12,7 +13,7 @@ struct DiagnosticsView: View {
                 Text("Runtime")
                     .font(.headline)
 
-                keyValueRow("Detected video dir", value: snapshot?.detectedVideoDirectory?.path)
+                keyValueRow("Detected video dir", value: snapshot.map { $0.detectedVideoDirectory.path })
                 keyValueRow("Current .mov open", value: snapshot?.currentMovPath?.path)
                 keyValueRow("Storage used", value: formattedStorageUsed(snapshot?.storageUsedBytes))
             }
@@ -53,12 +54,18 @@ struct DiagnosticsView: View {
                 }
 
                 if let backupNames = snapshot?.recentBackupFileNames, !backupNames.isEmpty {
-                    DisclosureGroup("Most recent backups") {
+                    DisclosureGroup(isExpanded: $isBackupsExpanded) {
                         ForEach(backupNames, id: \.self) { name in
                             Text(name)
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
+                    } label: {
+                        Text("Most recent backups")
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                isBackupsExpanded.toggle()
+                            }
                     }
                 }
 
