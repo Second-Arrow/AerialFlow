@@ -22,7 +22,7 @@ struct AboutView: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .sheet(isPresented: $isShowingLicense) {
             TextDocumentSheet(
-                title: "License Agreement",
+                title: "License",
                 text: BundledText.loadLicenseText()
             )
         }

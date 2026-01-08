@@ -1,4 +1,8 @@
 import Foundation
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
+import UserNotifications
 @testable import AerialFlow
 
 // MARK: - FakeEngineStateStore
@@ -19,6 +23,47 @@ actor FakeEngineStateStore: AerialEngineStateStore {
     func setLastChange(_ date: Date?) async { lastChange = date }
 }
 
+// MARK: - FakeExcludedAerialsCleanupStateStore
+
+actor FakeExcludedAerialsCleanupStateStore: ExcludedAerialsCleanupStateStoring {
+    private var autoCleanupEnabledSince: Date?
+    private var lastAutoCleanupRunDate: Date?
+
+    init(autoCleanupEnabledSince: Date? = nil, lastAutoCleanupRunDate: Date? = nil) {
+        self.autoCleanupEnabledSince = autoCleanupEnabledSince
+        self.lastAutoCleanupRunDate = lastAutoCleanupRunDate
+    }
+
+    func getAutoCleanupEnabledSince() async -> Date? { autoCleanupEnabledSince }
+    func setAutoCleanupEnabledSince(_ date: Date?) async { autoCleanupEnabledSince = date }
+
+    func getLastAutoCleanupRunDate() async -> Date? { lastAutoCleanupRunDate }
+    func setLastAutoCleanupRunDate(_ date: Date?) async { lastAutoCleanupRunDate = date }
+}
+
+// MARK: - PowerEventObserving Fakes
+
+struct EmptyPowerEventObserver: PowerEventObserving, Sendable {
+    func events() -> AsyncStream<PowerEvent> {
+        AsyncStream { continuation in
+            continuation.finish()
+        }
+    }
+}
+
+struct SequencePowerEventObserver: PowerEventObserving, Sendable {
+    let eventsToEmit: [PowerEvent]
+
+    func events() -> AsyncStream<PowerEvent> {
+        AsyncStream { continuation in
+            for event in eventsToEmit {
+                continuation.yield(event)
+            }
+            continuation.finish()
+        }
+    }
+}
+
 // MARK: - SeededRNG
 
 /// A deterministic random number generator for repeatable tests.
@@ -37,28 +82,104 @@ struct SeededRNG: RandomNumberGenerator {
     }
 }
 
-// MARK: - RunGuard Fakes
-
-/// A run guard that always allows rotation.
-struct AlwaysRunGuard: RunGuarding {
-    func shouldRunNow(settings: any RunGuardSettings) -> Bool {
-        true
-    }
-}
-
-/// A run guard that never allows rotation.
-struct NeverRunGuard: RunGuarding {
-    func shouldRunNow(settings: any RunGuardSettings) -> Bool {
-        false
-    }
-}
-
 // MARK: - Counter
 
 /// Thread-safe counter actor for test assertions.
 actor Counter {
     private(set) var value: Int = 0
     func increment() { value += 1 }
+}
+
+// MARK: - Test Image Helpers
+
+enum TestImageFactory {
+    static func pngData(rgba: (UInt8, UInt8, UInt8, UInt8)) throws -> Data {
+        var pixel = [rgba.0, rgba.1, rgba.2, rgba.3]
+        let width = 1
+        let height = 1
+        let bytesPerRow = 4
+
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+            .union(.byteOrder32Big)
+
+        guard let ctx = CGContext(
+            data: &pixel,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo.rawValue
+        ) else {
+            throw NSError(domain: "TestImageFactory", code: 1)
+        }
+
+        guard let image = ctx.makeImage() else {
+            throw NSError(domain: "TestImageFactory", code: 2)
+        }
+
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out as CFMutableData, UTType.png.identifier as CFString, 1, nil) else {
+            throw NSError(domain: "TestImageFactory", code: 3)
+        }
+        CGImageDestinationAddImage(dest, image, nil)
+        guard CGImageDestinationFinalize(dest) else {
+            throw NSError(domain: "TestImageFactory", code: 4)
+        }
+
+        return out as Data
+    }
+}
+
+// MARK: - Brightness Store Fakes
+
+actor NoopBrightnessStore: AerialBrightnessStoring {
+    func brightness(for asset: AerialAsset, timeout: TimeInterval) async throws -> Double {
+        _ = asset
+        _ = timeout
+        return 0.5
+    }
+
+    func isDark(assetID: String, threshold: Double) async -> Bool? {
+        _ = assetID
+        _ = threshold
+        return nil
+    }
+
+    func precompute(assets: [AerialAsset], timeout: TimeInterval, maxConcurrency: Int) async {
+        _ = assets
+        _ = timeout
+        _ = maxConcurrency
+    }
+}
+
+actor FixedDarknessBrightnessStore: AerialBrightnessStoring {
+    private let darkAssetIDs: Set<String>
+    private let unknownAssetIDs: Set<String>
+
+    init(darkAssetIDs: Set<String>, unknownAssetIDs: Set<String> = []) {
+        self.darkAssetIDs = darkAssetIDs
+        self.unknownAssetIDs = unknownAssetIDs
+    }
+
+    func brightness(for asset: AerialAsset, timeout: TimeInterval) async throws -> Double {
+        _ = asset
+        _ = timeout
+        return 0.5
+    }
+
+    func isDark(assetID: String, threshold: Double) async -> Bool? {
+        _ = threshold
+        if unknownAssetIDs.contains(assetID) { return nil }
+        return darkAssetIDs.contains(assetID)
+    }
+
+    func precompute(assets: [AerialAsset], timeout: TimeInterval, maxConcurrency: Int) async {
+        _ = assets
+        _ = timeout
+        _ = maxConcurrency
+    }
 }
 
 // MARK: - FakeCommandRunner
@@ -93,6 +214,23 @@ final class FakeCommandRunner: CommandRunner, @unchecked Sendable {
     }
 }
 
+// MARK: - Permission / System Settings Fakes
+
+struct NoopNotificationPermissionService: NotificationPermissionServicing {
+    func authorizationStatus() async -> UNAuthorizationStatus { .notDetermined }
+    func requestAuthorizationIfNeeded() async -> Bool { false }
+    func requestAuthorization() async -> Bool { false }
+    func postErrorNotificationIfPossible(_ message: String) async { _ = message }
+}
+
+struct NoopSystemSettingsOpener: SystemSettingsOpening {
+    func openSystemSettings() -> Bool { false }
+    func openNotificationsSettings() -> Bool { false }
+    func openLoginItemsSettings() -> Bool { false }
+    func openInputMonitoringSettings() -> Bool { false }
+    func openAccessibilitySettings() -> Bool { false }
+}
+
 // MARK: - InMemoryFileSystem
 
 /// In-memory fake filesystem for unit tests.
@@ -115,12 +253,44 @@ final class InMemoryFileSystem: FileSystem, @unchecked Sendable {
     private let lock = NSLock()
     private var files: [String: Data] = [:]
     private var directories: Set<String> = []
+    private var unreadablePaths: Set<String> = []
+    private var unwritablePaths: Set<String> = []
 
     init() {}
 
     func fileExists(at url: URL) -> Bool {
         lock.lock(); defer { lock.unlock() }
         return files[url.path] != nil || directories.contains(url.path)
+    }
+
+    func isReadable(at url: URL) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard files[url.path] != nil || directories.contains(url.path) else { return false }
+        return !unreadablePaths.contains(url.path)
+    }
+
+    func isWritable(at url: URL) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        // Allow writability checks for paths that may not exist yet (e.g. "can I create this directory?").
+        return !unwritablePaths.contains(url.path)
+    }
+
+    func setReadable(_ readable: Bool, for url: URL) {
+        lock.lock(); defer { lock.unlock() }
+        if readable {
+            unreadablePaths.remove(url.path)
+        } else {
+            unreadablePaths.insert(url.path)
+        }
+    }
+
+    func setWritable(_ writable: Bool, for url: URL) {
+        lock.lock(); defer { lock.unlock() }
+        if writable {
+            unwritablePaths.remove(url.path)
+        } else {
+            unwritablePaths.insert(url.path)
+        }
     }
 
     func readData(from url: URL) throws -> Data {

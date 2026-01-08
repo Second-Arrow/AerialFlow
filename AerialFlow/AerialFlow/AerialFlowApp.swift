@@ -50,6 +50,20 @@ private struct MenuBarContents: View {
     @ObservedObject var appState: AppState
 
     var body: some View {
+        Text("AerialFlow")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .task {
+                if appState.consumeOnboardingRequest() {
+                    openWindow(id: "onboarding")
+                }
+            }
+            .onChange(of: appState.onboardingRequested) { _, _ in
+                if appState.consumeOnboardingRequest() {
+                    openWindow(id: "onboarding")
+                }
+            }
+
         Text(appState.statusLine)
             .font(.footnote)
             .foregroundStyle(
@@ -65,6 +79,10 @@ private struct MenuBarContents: View {
         }
         .disabled(appState.isBusy)
 
+        Button("Setup…") {
+            openWindow(id: "onboarding")
+        }
+
         Button(appState.isPaused ? "Continue" : "Pause") {
             appState.setRotationEnabled(appState.isPaused)
         }
@@ -75,7 +93,7 @@ private struct MenuBarContents: View {
             Text("Settings")
         }
 
-        Button("About AerialFlow") {
+        Button("About") {
             openWindow(id: "about")
         }
 
@@ -93,7 +111,7 @@ private struct SupportCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
-            Button("About AerialFlow") {
+            Button("About") {
                 openWindow(id: "about")
             }
         }
@@ -129,10 +147,17 @@ struct AerialFlowApp: App {
         Settings {
             SettingsView()
                 .environmentObject(appState)
+                .environmentObject(appState.updaterViewModel)
         }
 
         Window("About AerialFlow", id: "about") {
             AboutWindowView()
+        }
+        .windowResizability(.contentSize)
+
+        Window("AerialFlow Setup", id: "onboarding") {
+            OnboardingWindowView()
+                .environmentObject(appState)
         }
         .windowResizability(.contentSize)
     }

@@ -8,85 +8,87 @@ struct DiagnosticsView: View {
     @State private var isBackupsExpanded: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Runtime")
-                    .font(.headline)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Runtime")
+                        .font(.headline)
 
-                keyValueRow("Detected video dir", value: snapshot.map { $0.detectedVideoDirectory.path })
-                keyValueRow("Current .mov open", value: snapshot?.currentMovPath?.path)
-                keyValueRow("Storage used", value: formattedStorageUsed(snapshot?.storageUsedBytes))
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("State")
-                    .font(.headline)
-
-                keyValueRow("Index.plist", value: appState.settings.indexPlistURL.path)
-                keyValueRow("Last applied asset ID", value: snapshot?.lastAssetID)
-                keyValueRow("Last change", value: snapshot?.lastChangeDescription)
-                keyValueRow("Next update", value: snapshot?.nextScheduledChangeDescription)
-                keyValueRow("Last error", value: appState.lastErrorMessage)
-
-                SettingsRow("Backup retention", labelWidth: 160) {
-                    Text("\(appState.settings.backupRetentionCount)")
-                        .foregroundStyle(.secondary)
-                }
-                .help("How many Index.plist backups AerialFlow keeps. Change this in Configuration > Advanced.")
-
-                Text("Diagnostics are read-only. Adjust settings in the other tabs.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Backups")
-                    .font(.headline)
-
-                if let count = snapshot?.backupCount {
-                    Text("Found \(count) backups next to Index.plist.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Loading backups…")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    keyValueRow("Detected video dir", value: snapshot.map { $0.detectedVideoDirectory.path })
+                    keyValueRow("Current .mov open", value: snapshot?.currentMovPath?.path)
+                    keyValueRow("Storage used", value: formattedStorageUsed(snapshot?.storageUsedBytes))
                 }
 
-                if let backupNames = snapshot?.recentBackupFileNames, !backupNames.isEmpty {
-                    DisclosureGroup(isExpanded: $isBackupsExpanded) {
-                        ForEach(backupNames, id: \.self) { name in
-                            Text(name)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    } label: {
-                        Text("Most recent backups")
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                isBackupsExpanded.toggle()
-                            }
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("State")
+                        .font(.headline)
+
+                    keyValueRow("Index.plist", value: appState.settings.indexPlistURL.path)
+                    keyValueRow("Last applied asset ID", value: snapshot?.lastAssetID)
+                    keyValueRow("Last change", value: snapshot?.lastChangeDescription)
+                    keyValueRow("Next update", value: snapshot?.nextScheduledChangeDescription)
+                    keyValueRow("Last error", value: appState.lastErrorMessage)
+
+                    SettingsRow("Backup retention", labelWidth: 160) {
+                        Text("\(appState.settings.backupRetentionCount)")
+                            .foregroundStyle(.secondary)
                     }
+                    .help("How many Index.plist backups AerialFlow keeps. Change this in Advanced settings.")
+
+                    Text("Diagnostics are read-only. Adjust settings in the other tabs.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
-                Text("Backup retention can be changed in Configuration > Advanced.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Backups")
+                        .font(.headline)
 
-            if let snapshotErrorMessage {
-                Text(snapshotErrorMessage)
-                    .font(.footnote)
-                    .foregroundStyle(Color.red)
+                    if let count = snapshot?.backupCount {
+                        Text("Found \(count) backups next to Index.plist.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Loading backups…")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let backupNames = snapshot?.recentBackupFileNames, !backupNames.isEmpty {
+                        DisclosureGroup(isExpanded: $isBackupsExpanded) {
+                            ForEach(backupNames, id: \.self) { name in
+                                Text(name)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } label: {
+                            Text("Most recent backups")
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    isBackupsExpanded.toggle()
+                                }
+                        }
+                    }
+
+                    Text("Backup retention can be changed in Advanced settings.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let snapshotErrorMessage {
+                    Text(snapshotErrorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(Color.red)
+                }
             }
+            .frame(maxWidth: 560, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task { await refresh() }
-        .onChange(of: appState.settings.indexPlistURL) { _, _ in
-            Task { await refresh() }
-        }
-        .onChange(of: appState.statusLine) { _, _ in
-            Task { await refresh() }
-        }
+        .onChange(of: appState.settings.indexPlistURL) { _, _ in Task { await refresh() } }
+        .onChange(of: appState.statusLine) { _, _ in Task { await refresh() } }
     }
 
     private func refresh() async {

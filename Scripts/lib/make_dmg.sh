@@ -2,13 +2,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=Scripts/common.sh
+# shellcheck source=Scripts/lib/common.sh
 source "${SCRIPT_DIR}/common.sh"
 
 usage() {
   cat <<'EOF'
 Usage:
-  Scripts/make_dmg.sh --app <path-to-app> --out <path-to-output.dmg> [--volname <name>]
+  Scripts/lib/make_dmg.sh --app <path-to-app> --out <path-to-output.dmg> [--volname <name>]
 EOF
 }
 
@@ -65,5 +65,4 @@ log "Writing checksum…"
 /usr/bin/shasum -a 256 "${OUT_DMG}" > "${OUT_DMG}.sha256.txt"
 
 log "OK"
-
 

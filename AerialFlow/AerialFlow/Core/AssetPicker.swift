@@ -8,7 +8,7 @@ struct AssetPicker: Sendable {
         var errorDescription: String? {
             switch self {
             case .noEligibleAssets:
-                return "No eligible Aerial assets available after applying category exclusions."
+                return "No eligible Aerial assets available after applying exclusions."
             }
         }
     }
@@ -19,6 +19,7 @@ struct AssetPicker: Sendable {
         assets: [AerialAsset],
         excludedCategoryIDs: Set<String>,
         excludedSubcategoryIDs: Set<String>,
+        excludedAssetIDs: Set<String>,
         currentAssetID: String?,
         randomMode: Bool,
         rng: inout some RandomNumberGenerator
@@ -26,10 +27,11 @@ struct AssetPicker: Sendable {
         let eligible = assets
             .filter { asset in
                 guard !asset.id.isEmpty else { return false }
-                if excludedCategoryIDs.isEmpty, excludedSubcategoryIDs.isEmpty { return true }
+                if excludedCategoryIDs.isEmpty, excludedSubcategoryIDs.isEmpty, excludedAssetIDs.isEmpty { return true }
                 return !asset.isExcluded(
                     excludedMainCategoryIDs: excludedCategoryIDs,
-                    excludedSubcategoryIDs: excludedSubcategoryIDs
+                    excludedSubcategoryIDs: excludedSubcategoryIDs,
+                    excludedAssetIDs: excludedAssetIDs
                 )
             }
             .sorted { $0.id < $1.id } // stable, deterministic ordering

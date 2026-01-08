@@ -7,10 +7,15 @@ struct AerialEngineTests {
     private struct Settings: AerialEngineSettings {
         let excludedCategoryIDs: Set<String>
         let excludedSubcategoryIDs: Set<String>
+        let excludedAssetIDs: Set<String>
         let randomMode: Bool
         let downloadTimeout: TimeInterval
         let indexPlistURL: URL
         let backupRetentionCount: Int
+        let isLightSensitiveFilteringEnabled: Bool
+        let allowedLightStartMinutes: Int
+        let allowedLightEndMinutes: Int
+        let lightSensitivity: Double
     }
 
     private enum TestError: Error {
@@ -59,12 +64,14 @@ struct AerialEngineTests {
             assets: [AerialAsset],
             excludedCategoryIDs: Set<String>,
             excludedSubcategoryIDs: Set<String>,
+            excludedAssetIDs: Set<String>,
             currentAssetID: String?,
             randomMode: Bool,
             rng: inout some RandomNumberGenerator
         ) throws -> AerialAsset {
             _ = excludedCategoryIDs
             _ = excludedSubcategoryIDs
+            _ = excludedAssetIDs
             _ = currentAssetID
             _ = randomMode
             _ = rng
@@ -112,6 +119,97 @@ struct AerialEngineTests {
         }
     }
 
+    @Test func testNext_outsideAllowedWindow_filtersToDarkAssets_whenBrightnessKnown() async throws {
+        let recorder = Recorder()
+        let state = FakeEngineStateStore(lastAssetID: nil)
+
+        let assets = [
+            AerialAsset(id: "bright", categories: [], urlVariants: ["url-4K": URL(string: "https://example.com/bright.mov")!]),
+            AerialAsset(id: "dark", categories: [], urlVariants: ["url-4K": URL(string: "https://example.com/dark.mov")!]),
+        ]
+        let snapshot = AerialCatalog.Snapshot(assets: assets, categories: [], fileURL: URL(fileURLWithPath: "/dev/null"), fileModificationDate: nil)
+
+        // Use a local-time date to avoid time zone offsets in Date(timeIntervalSince1970:).
+        // 01:00 local is outside the default 10:00-18:00 range.
+        var comps = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        comps.hour = 1
+        comps.minute = 0
+        comps.second = 0
+        let morning = Calendar.current.date(from: comps) ?? Date()
+        let engine = AerialEngine(
+            catalog: FakeCatalog(snapshot: snapshot),
+            picker: AssetPicker(),
+            urlSelector: FakeURLSelector(recorder: recorder, url: URL(string: "https://example.com/dark.mov")!),
+            downloader: FakeDownloader(recorder: recorder),
+            brightnessStore: FixedDarknessBrightnessStore(darkAssetIDs: ["dark"]),
+            storeEditor: FakeStoreEditor(recorder: recorder),
+            reloader: FakeReloader(recorder: recorder),
+            stateStore: state,
+            now: { morning }
+        )
+
+        let report = try await engine.next(
+            settings: Settings(
+                excludedCategoryIDs: [],
+                excludedSubcategoryIDs: [],
+                excludedAssetIDs: [],
+                randomMode: false,
+                downloadTimeout: 5,
+                indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist"),
+                backupRetentionCount: 10,
+                isLightSensitiveFilteringEnabled: true,
+                allowedLightStartMinutes: 10 * 60,
+                allowedLightEndMinutes: 18 * 60,
+                lightSensitivity: 0.5
+            )
+        )
+
+        #expect(report.chosenAssetID == "dark")
+    }
+
+    @Test func testNext_outsideAllowedWindow_fallsBack_whenBrightnessUnknown() async throws {
+        let recorder = Recorder()
+        let state = FakeEngineStateStore(lastAssetID: nil)
+
+        let assets = [
+            AerialAsset(id: "a", categories: [], urlVariants: ["url-4K": URL(string: "https://example.com/a.mov")!]),
+            AerialAsset(id: "b", categories: [], urlVariants: ["url-4K": URL(string: "https://example.com/b.mov")!]),
+        ]
+        let snapshot = AerialCatalog.Snapshot(assets: assets, categories: [], fileURL: URL(fileURLWithPath: "/dev/null"), fileModificationDate: nil)
+
+        let morning = Date(timeIntervalSince1970: 9 * 60 * 60)
+        let engine = AerialEngine(
+            catalog: FakeCatalog(snapshot: snapshot),
+            picker: AssetPicker(),
+            urlSelector: FakeURLSelector(recorder: recorder, url: URL(string: "https://example.com/a.mov")!),
+            downloader: FakeDownloader(recorder: recorder),
+            brightnessStore: FixedDarknessBrightnessStore(darkAssetIDs: [], unknownAssetIDs: ["a", "b"]),
+            storeEditor: FakeStoreEditor(recorder: recorder),
+            reloader: FakeReloader(recorder: recorder),
+            stateStore: state,
+            now: { morning }
+        )
+
+        let report = try await engine.next(
+            settings: Settings(
+                excludedCategoryIDs: [],
+                excludedSubcategoryIDs: [],
+                excludedAssetIDs: [],
+                randomMode: false,
+                downloadTimeout: 5,
+                indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist"),
+                backupRetentionCount: 10,
+                isLightSensitiveFilteringEnabled: true,
+                allowedLightStartMinutes: 10 * 60,
+                allowedLightEndMinutes: 18 * 60,
+                lightSensitivity: 0.5
+            )
+        )
+
+        // Falls back to unfiltered assets; deterministic AssetPicker picks first when current nil.
+        #expect(report.chosenAssetID == "a")
+    }
+
     @Test func testNextRunsPickDownloadApplyReload_inOrder() async throws {
         let recorder = Recorder()
         let state = FakeEngineStateStore(lastAssetID: "b")
@@ -127,6 +225,7 @@ struct AerialEngineTests {
             picker: FakePicker(recorder: recorder),
             urlSelector: FakeURLSelector(recorder: recorder, url: URL(string: "https://example.com/a.mov")!),
             downloader: FakeDownloader(recorder: recorder),
+            brightnessStore: NoopBrightnessStore(),
             storeEditor: FakeStoreEditor(recorder: recorder),
             reloader: FakeReloader(recorder: recorder),
             stateStore: state,
@@ -137,10 +236,15 @@ struct AerialEngineTests {
             settings: Settings(
                 excludedCategoryIDs: [],
                 excludedSubcategoryIDs: [],
+                excludedAssetIDs: [],
                 randomMode: false,
                 downloadTimeout: 5,
                 indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist"),
-                backupRetentionCount: 10
+                backupRetentionCount: 10,
+                isLightSensitiveFilteringEnabled: false,
+                allowedLightStartMinutes: 10 * 60,
+                allowedLightEndMinutes: 18 * 60,
+                lightSensitivity: 0.5
             )
         )
 
@@ -160,6 +264,7 @@ struct AerialEngineTests {
             picker: FakePicker(recorder: recorder),
             urlSelector: FakeURLSelector(recorder: recorder, url: URL(string: "https://example.com/a.mov")!),
             downloader: FakeDownloader(recorder: recorder),
+            brightnessStore: NoopBrightnessStore(),
             storeEditor: FakeStoreEditor(recorder: recorder),
             reloader: FakeReloader(recorder: recorder),
             stateStore: state,
@@ -171,10 +276,15 @@ struct AerialEngineTests {
                 settings: Settings(
                     excludedCategoryIDs: [],
                     excludedSubcategoryIDs: [],
+                    excludedAssetIDs: [],
                     randomMode: false,
                     downloadTimeout: 5,
                     indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist"),
-                    backupRetentionCount: 10
+                backupRetentionCount: 10,
+                isLightSensitiveFilteringEnabled: false,
+                allowedLightStartMinutes: 10 * 60,
+                allowedLightEndMinutes: 18 * 60,
+                lightSensitivity: 0.5
                 )
             )
             #expect(Bool(false), "Expected catalog load failure to be thrown")
@@ -186,6 +296,52 @@ struct AerialEngineTests {
         // Verify no operations were attempted after catalog failure
         let events = recorder.snapshot()
         #expect(events.isEmpty)
+    }
+
+    @Test func testNextInSubcategory_filtersAssetsAndForcesNonRandomPick() async throws {
+        let recorder = Recorder()
+        let state = FakeEngineStateStore(lastAssetID: "b")
+
+        let assets = [
+            AerialAsset(id: "a", categories: [], subcategories: ["sub1"], urlVariants: ["url-4K": URL(string: "https://example.com/a.mov")!]),
+            AerialAsset(id: "b", categories: [], subcategories: ["sub1"], urlVariants: ["url-4K": URL(string: "https://example.com/b.mov")!]),
+            AerialAsset(id: "c", categories: [], subcategories: ["sub1"], urlVariants: ["url-4K": URL(string: "https://example.com/c.mov")!]),
+            AerialAsset(id: "z", categories: [], subcategories: ["sub2"], urlVariants: ["url-4K": URL(string: "https://example.com/z.mov")!]),
+        ]
+        let catalogSnapshot = AerialCatalog.Snapshot(assets: assets, categories: [], fileURL: URL(fileURLWithPath: "/dev/null"), fileModificationDate: nil)
+
+        let engine = AerialEngine(
+            catalog: FakeCatalog(snapshot: catalogSnapshot),
+            picker: AssetPicker(),
+            urlSelector: FakeURLSelector(recorder: recorder, url: URL(string: "https://example.com/c.mov")!),
+            downloader: FakeDownloader(recorder: recorder),
+            brightnessStore: NoopBrightnessStore(),
+            storeEditor: FakeStoreEditor(recorder: recorder),
+            reloader: FakeReloader(recorder: recorder),
+            stateStore: state,
+            now: { Date(timeIntervalSince1970: 1) }
+        )
+
+        let report = try await engine.nextInSubcategory(
+            settings: Settings(
+                excludedCategoryIDs: [],
+                excludedSubcategoryIDs: [],
+                excludedAssetIDs: [],
+                randomMode: true,
+                downloadTimeout: 5,
+                indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist"),
+                backupRetentionCount: 10,
+                isLightSensitiveFilteringEnabled: false,
+                allowedLightStartMinutes: 10 * 60,
+                allowedLightEndMinutes: 18 * 60,
+                lightSensitivity: 0.5
+            ),
+            subcategoryID: "sub1"
+        )
+
+        #expect(report.chosenAssetID == "c")
+        let lastAsset = await state.getLastAssetID()
+        #expect(lastAsset == "c")
     }
 }
 

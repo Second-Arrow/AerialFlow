@@ -2,26 +2,31 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=Scripts/common.sh
+# shellcheck source=Scripts/lib/common.sh
 source "${SCRIPT_DIR}/common.sh"
 
 usage() {
   cat <<'EOF'
 Usage:
-  Scripts/release_dmg.sh --notary-profile <profile> [--identity "<Developer ID Application: ...>"]
+  Scripts/lib/release_dmg.sh --notary-profile <profile> [--identity "<Developer ID Application: ...>"] [--sparkle-tag <tag>] [--sparkle-repo <owner/repo>]
 
 Environment:
   NOTARYTOOL_PROFILE  Optional fallback for --notary-profile.
   SIGN_IDENTITY       Optional fallback for --identity.
+  SPARKLE_TAG         Optional fallback for --sparkle-tag.
+  SPARKLE_REPO        Optional fallback for --sparkle-repo.
 
 Outputs:
   dist/AerialFlow-<version>(<build>)-universal.dmg
   dist/AerialFlow-<version>(<build>)-universal.dmg.sha256.txt
+  dist/sparkle/appcast.xml (if --sparkle-tag is provided)
 EOF
 }
 
 NOTARY_PROFILE="${NOTARYTOOL_PROFILE:-}"
 IDENTITY="${SIGN_IDENTITY:-}"
+SPARKLE_TAG="${SPARKLE_TAG:-}"
+SPARKLE_REPO="${SPARKLE_REPO:-second-arrow/AerialFlow}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,6 +34,10 @@ while [[ $# -gt 0 ]]; do
       NOTARY_PROFILE="${2:-}"; shift 2 ;;
     --identity)
       IDENTITY="${2:-}"; shift 2 ;;
+    --sparkle-tag)
+      SPARKLE_TAG="${2:-}"; shift 2 ;;
+    --sparkle-repo)
+      SPARKLE_REPO="${2:-}"; shift 2 ;;
     -h|--help)
       usage; exit 0 ;;
     *)
@@ -53,7 +62,7 @@ rm -rf "${TMP_BASE}"
 mkdir -p "${TMP_BASE}" "${DIST}"
 
 log "Resolving version/build…"
-BUILD_SETTINGS="$(/usr/bin/xcodebuild -project "${PROJECT}" -scheme "${SCHEME}" -configuration Release -showBuildSettings)"
+BUILD_SETTINGS="$(/usr/bin/xcodebuild -project "${PROJECT}" -scheme "${SCHEME}" -configuration Release -showBuildSettings -derivedDataPath "${DERIVED}")"
 VERSION="$(echo "${BUILD_SETTINGS}" | /usr/bin/awk -F ' = ' '/MARKETING_VERSION/ {print $2; exit}')"
 BUILD="$(echo "${BUILD_SETTINGS}" | /usr/bin/awk -F ' = ' '/CURRENT_PROJECT_VERSION/ {print $2; exit}')"
 [[ -n "${VERSION}" ]] || die "Could not determine MARKETING_VERSION"
@@ -113,8 +122,19 @@ ${SCRIPT_DIR}/notarize.sh --profile "${NOTARY_PROFILE}" --file "${DMG_PATH}" --s
 log "Final verification (spctl)…"
 /usr/sbin/spctl -a -vv --type open "${DMG_PATH}"
 
+if [[ -n "${SPARKLE_TAG}" ]]; then
+  log "Generating Sparkle appcast (tag=${SPARKLE_TAG}, repo=${SPARKLE_REPO})…"
+  "${SCRIPT_DIR}/sparkle_generate_appcast.sh" \
+    --tag "${SPARKLE_TAG}" \
+    --repo "${SPARKLE_REPO}" \
+    --derived-data "${DERIVED}" \
+    --dmg "${DMG_PATH}"
+fi
+
 log "Done:"
 log "  ${DMG_PATH}"
 log "  ${DMG_PATH}.sha256.txt"
-
+if [[ -n "${SPARKLE_TAG}" ]]; then
+  log "  ${DIST}/sparkle/appcast.xml"
+fi
 

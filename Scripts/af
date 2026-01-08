@@ -1,0 +1,528 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=Scripts/lib/common.sh
+source "${SCRIPT_DIR}/lib/common.sh"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  Scripts/af <command> [<args>]
+
+Commands:
+  version set <semver> [--bump-build|--no-bump-build] [--no-commit] [--no-tag] [--tag-prefix <pfx>]
+      Sets MARKETING_VERSION in the Xcode project (committed change).
+      By default also bumps CURRENT_PROJECT_VERSION (build number).
+
+  build local [--dmg] [--install-to <dir>]
+      Builds an unsigned universal Release .app into dist/unsigned/.
+
+  release production --notary-profile <profile>
+      [--identity "<Developer ID Application: ...>"]
+      [--repo <owner/repo>] [--tap <owner/repo>]
+      [--tag <tag> | --tag-prefix <pfx>] [--skip-sparkle] [--dry-run]
+      Builds + signs + notarizes + generates Sparkle appcast assets,
+      publishes a GitHub Release via gh, and updates the Homebrew tap cask.
+
+Examples:
+  bash Scripts/af version set 1.2.3
+  bash Scripts/af build local --install-to "/Applications"
+  bash Scripts/af release production --notary-profile "AerialFlowNotary"
+EOF
+}
+
+die_usage() {
+  usage
+  die "$*"
+}
+
+require_file() {
+  [[ -f "$1" ]] || die "File not found: $1"
+}
+
+require_dir() {
+  [[ -d "$1" ]] || die "Directory not found: $1"
+}
+
+read_project_version_build() {
+  require_cmd /usr/bin/python3
+
+  local root
+  root="$(repo_root)"
+  local pbxproj="${root}/AerialFlow/AerialFlow.xcodeproj/project.pbxproj"
+  require_file "${pbxproj}"
+
+  /usr/bin/python3 - "${pbxproj}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+pbxproj = Path(sys.argv[1])
+text = pbxproj.read_text(encoding="utf-8")
+
+versions = re.findall(r'\bMARKETING_VERSION\s*=\s*([^;]+)\s*;', text)
+builds = [int(x) for x in re.findall(r'\bCURRENT_PROJECT_VERSION\s*=\s*([0-9]+)\s*;', text)]
+
+if not versions:
+    raise SystemExit("ERROR: No MARKETING_VERSION found")
+if not builds:
+    raise SystemExit("ERROR: No CURRENT_PROJECT_VERSION found")
+
+# Use the first version, but ensure consistency to avoid surprises.
+v0 = versions[0].strip()
+if any(v.strip() != v0 for v in versions):
+    raise SystemExit("ERROR: Inconsistent MARKETING_VERSION values in project.pbxproj")
+
+print(f"{v0} {max(builds)}")
+PY
+}
+
+is_semver() {
+  # Accept x.y.z with optional -prerelease and/or +buildmetadata
+  [[ "${1:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([\-][0-9A-Za-z\.-]+)?([+][0-9A-Za-z\.-]+)?$ ]]
+}
+
+git_is_clean() {
+  git diff --quiet && git diff --quiet --cached
+}
+
+cmd_version_set() {
+  local new_version="${1:-}"
+  shift || true
+
+  if [[ -z "${new_version}" || "${new_version}" == "-h" || "${new_version}" == "--help" ]]; then
+    usage
+    exit 0
+  fi
+
+  local bump_build="1"
+  local do_tag="1"
+  local do_commit="1"
+  local tag_prefix="v"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --bump-build)
+        bump_build="1"; shift ;;
+      --no-bump-build)
+        bump_build="0"; shift ;;
+      --no-commit)
+        do_commit="0"; shift ;;
+      --no-tag)
+        do_tag="0"; shift ;;
+      --tag-prefix)
+        tag_prefix="${2:-}"; shift 2 ;;
+      -h|--help)
+        usage; exit 0 ;;
+      *)
+        die_usage "Unknown arg: $1" ;;
+    esac
+  done
+
+  [[ -n "${new_version}" ]] || die_usage "Missing <semver>"
+  is_semver "${new_version}" || die "Invalid semver: ${new_version}"
+  if [[ "${do_tag}" == "1" && "${do_commit}" != "1" ]]; then
+    die "Refusing to create a git tag without committing the version change. Remove --no-commit or add --no-tag."
+  fi
+
+  require_cmd /usr/bin/python3
+  require_cmd /usr/bin/git
+
+  local root
+  root="$(repo_root)"
+  local pbxproj="${root}/AerialFlow/AerialFlow.xcodeproj/project.pbxproj"
+  require_file "${pbxproj}"
+
+  log "Updating version in: ${pbxproj}"
+  if [[ "${do_commit}" == "1" ]] && ! git_is_clean; then
+    die "Working tree is not clean. Commit/stash changes before running: version set"
+  fi
+  /usr/bin/python3 - "${pbxproj}" "${new_version}" "${bump_build}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+pbxproj = Path(sys.argv[1])
+new_version = sys.argv[2]
+bump_build = sys.argv[3] == "1"
+
+text = pbxproj.read_text(encoding="utf-8")
+
+# Replace all MARKETING_VERSION occurrences.
+text, n_version = re.subn(
+    r'(\bMARKETING_VERSION\s*=\s*)([^;]+)(;)',
+    lambda m: f"{m.group(1)}{new_version}{m.group(3)}",
+    text,
+)
+if n_version == 0:
+    raise SystemExit("ERROR: Could not find MARKETING_VERSION in project.pbxproj")
+
+if bump_build:
+    builds = [int(x) for x in re.findall(r'\bCURRENT_PROJECT_VERSION\s*=\s*([0-9]+)\s*;', text)]
+    if not builds:
+        raise SystemExit("ERROR: Could not find CURRENT_PROJECT_VERSION in project.pbxproj")
+    new_build = max(builds) + 1
+    text, n_build = re.subn(
+        r'(\bCURRENT_PROJECT_VERSION\s*=\s*)([0-9]+)(\s*;)',
+        lambda m: f"{m.group(1)}{new_build}{m.group(3)}",
+        text,
+    )
+    if n_build == 0:
+        raise SystemExit("ERROR: Failed to update CURRENT_PROJECT_VERSION")
+
+pbxproj.write_text(text, encoding="utf-8")
+PY
+
+  if [[ "${bump_build}" == "1" ]]; then
+    log "OK: MARKETING_VERSION=${new_version} (bumped CURRENT_PROJECT_VERSION)"
+  else
+    log "OK: MARKETING_VERSION=${new_version}"
+  fi
+
+  if [[ "${do_commit}" == "1" ]]; then
+    log "Committing version change…"
+    git add "${pbxproj}"
+    git commit -m "Bump version to ${new_version}"
+  else
+    log "Note: version change is not committed (--no-commit)."
+  fi
+
+  if [[ "${do_tag}" == "1" ]]; then
+    local tag="${tag_prefix}${new_version}"
+    if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null 2>&1; then
+      die "Tag already exists: ${tag} (delete it or use a new version)"
+    fi
+    log "Creating git tag: ${tag}"
+    git tag "${tag}"
+    log "Tag created: ${tag}"
+  fi
+}
+
+cmd_build_local() {
+  local make_dmg="0"
+  local install_to=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dmg)
+        make_dmg="1"; shift ;;
+      --install-to)
+        install_to="${2:-}"; shift 2 ;;
+      -h|--help)
+        usage; exit 0 ;;
+      *)
+        die_usage "Unknown arg: $1" ;;
+    esac
+  done
+
+  require_cmd /usr/bin/xcodebuild
+  require_cmd /usr/bin/ditto
+
+  local root
+  root="$(repo_root)"
+  local project="${root}/AerialFlow/AerialFlow.xcodeproj"
+  local scheme="AerialFlow"
+  local derived="${root}/.derivedData"
+  local tmp_base="${root}/.tmp/unsigned"
+  local dist="${root}/dist/unsigned"
+
+  rm -rf "${tmp_base}"
+  mkdir -p "${tmp_base}" "${dist}"
+
+  log "Resolving version/build…"
+  local version_build
+  version_build="$(read_project_version_build)"
+  local version="${version_build%% *}"
+  local build="${version_build##* }"
+
+  log "Building (universal, unsigned)…"
+  /usr/bin/xcodebuild \
+    -project "${project}" \
+    -scheme "${scheme}" \
+    -configuration Release \
+    -destination 'generic/platform=macOS' \
+    -sdk macosx \
+    -derivedDataPath "${derived}" \
+    build \
+    ARCHS="arm64 x86_64" \
+    ONLY_ACTIVE_ARCH=NO \
+    CODE_SIGNING_ALLOWED=NO \
+    CODE_SIGNING_REQUIRED=NO
+
+  local app_name="AerialFlow"
+  local app_built_path="${derived}/Build/Products/Release/${app_name}.app"
+  if [[ ! -d "${app_built_path}" ]]; then
+    app_built_path="$(/usr/bin/find "${derived}/Build/Products" -maxdepth 4 -type d -name "${app_name}.app" -path "*/Release/*" | /usr/bin/head -n 1 || true)"
+  fi
+  [[ -n "${app_built_path}" ]] || die "Could not locate built app in ${derived}/Build/Products"
+  [[ -d "${app_built_path}" ]] || die "Built app not found: ${app_built_path}"
+
+  local out_app="${dist}/${app_name}.app"
+  rm -rf "${out_app}"
+  log "Copying app to: ${out_app}"
+  /usr/bin/ditto "${app_built_path}" "${out_app}"
+
+  if [[ "${make_dmg}" == "1" ]]; then
+    local dmg_name="${app_name}-${version}(${build})-unsigned-universal.dmg"
+    local dmg_path="${root}/dist/${dmg_name}"
+    log "Creating unsigned DMG…"
+    "${SCRIPT_DIR}/lib/make_dmg.sh" --app "${out_app}" --out "${dmg_path}" --volname "${app_name}"
+    log "Unsigned DMG:"
+    log "  ${dmg_path}"
+    log "  ${dmg_path}.sha256.txt"
+  fi
+
+  if [[ -n "${install_to}" ]]; then
+    [[ -d "${install_to}" ]] || die "Install dir not found: ${install_to}"
+    log "Installing to: ${install_to}"
+    rm -rf "${install_to}/${app_name}.app" || true
+    # Note: may require sudo for /Applications.
+    /bin/cp -R "${out_app}" "${install_to}/"
+    log "Installed: ${install_to}/${app_name}.app"
+  fi
+
+  log "Done:"
+  log "  ${out_app}"
+}
+
+cmd_release_production() {
+  local notary_profile=""
+  local identity=""
+  local repo="second-arrow/AerialFlow"
+  local tap="second-arrow/homebrew-tap"
+  local tag_prefix="v"
+  local tag_override=""
+  local dry_run="0"
+  local skip_github="0"
+  local skip_brew="0"
+  local skip_sparkle="0"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --notary-profile)
+        notary_profile="${2:-}"; shift 2 ;;
+      --identity)
+        identity="${2:-}"; shift 2 ;;
+      --repo)
+        repo="${2:-}"; shift 2 ;;
+      --tap)
+        tap="${2:-}"; shift 2 ;;
+      --tag)
+        tag_override="${2:-}"; shift 2 ;;
+      --tag-prefix)
+        tag_prefix="${2:-}"; shift 2 ;;
+      --dry-run)
+        dry_run="1"; shift ;;
+      --skip-github)
+        skip_github="1"; shift ;;
+      --skip-brew)
+        skip_brew="1"; shift ;;
+      --skip-sparkle)
+        skip_sparkle="1"; shift ;;
+      -h|--help)
+        usage; exit 0 ;;
+      *)
+        die_usage "Unknown arg: $1" ;;
+    esac
+  done
+
+  [[ -n "${notary_profile}" ]] || die_usage "Missing --notary-profile"
+  if [[ "${skip_github}" == "1" && "${skip_brew}" != "1" ]]; then
+    die "Refusing: --skip-github cannot be combined with Homebrew updates (cask URLs point to GitHub Releases). Add --skip-brew."
+  fi
+  if [[ "${skip_sparkle}" == "1" && ( "${skip_github}" != "1" || "${skip_brew}" != "1" ) ]]; then
+    die "Refusing: --skip-sparkle is only allowed with --skip-github --skip-brew"
+  fi
+
+  require_cmd git
+  require_cmd /usr/bin/xcodebuild
+
+  local root
+  root="$(repo_root)"
+  require_dir "${root}/AerialFlow/AerialFlow.xcodeproj"
+
+  # Resolve current version/build from Xcode build settings (source of truth).
+  log "Resolving version/build…"
+  local project="${root}/AerialFlow/AerialFlow.xcodeproj"
+  local scheme="AerialFlow"
+  local derived="${root}/.derivedData"
+
+  local version_build
+  version_build="$(read_project_version_build)"
+  local version="${version_build%% *}"
+  local build="${version_build##* }"
+
+  local tag="${tag_override:-${tag_prefix}${version}}"
+  log "Release tag: ${tag}"
+  log "GitHub repo: ${repo}"
+  log "Homebrew tap: ${tap}"
+
+  if [[ "${dry_run}" == "1" ]]; then
+    log "[dry-run] Would build/sign/notarize DMG + generate Sparkle appcast for tag ${tag}"
+    if [[ "${skip_github}" != "1" ]]; then
+      log "[dry-run] Would push tag to origin, create/update GitHub release, and upload assets"
+    else
+      log "[dry-run] Would NOT touch GitHub releases (--skip-github)"
+    fi
+    if [[ "${skip_brew}" != "1" ]]; then
+      log "[dry-run] Would clone ${tap}, update Casks/aerialflow.rb, commit and push"
+    else
+      log "[dry-run] Would NOT touch Homebrew tap (--skip-brew)"
+    fi
+    return 0
+  fi
+
+  if [[ "${skip_github}" != "1" ]] && ! git_is_clean; then
+    die "Working tree is not clean. Commit/stash changes before releasing."
+  fi
+
+  if [[ "${skip_github}" != "1" ]]; then
+    # Ensure tag exists (create if missing) and push it.
+    if ! git rev-parse -q --verify "refs/tags/${tag}" >/dev/null 2>&1; then
+      log "Creating tag: ${tag}"
+      git tag "${tag}"
+    fi
+    log "Pushing tag to origin: ${tag}"
+    git push origin "${tag}"
+  fi
+
+  # Build DMG + Sparkle artifacts.
+  local release_args=(--notary-profile "${notary_profile}" --sparkle-repo "${repo}")
+  if [[ "${skip_sparkle}" != "1" ]]; then
+    release_args+=(--sparkle-tag "${tag}")
+  fi
+  if [[ -n "${identity}" ]]; then
+    release_args+=(--identity "${identity}")
+  fi
+  "${SCRIPT_DIR}/lib/release_dmg.sh" "${release_args[@]}"
+
+  local dmg="dist/AerialFlow-${version}(${build})-universal.dmg"
+  local dmg_sha="${dmg}.sha256.txt"
+  local appcast="dist/sparkle/appcast.xml"
+  require_file "${root}/${dmg}"
+  require_file "${root}/${dmg_sha}"
+  if [[ "${skip_sparkle}" != "1" ]]; then
+    require_file "${root}/${appcast}"
+  fi
+
+  if [[ "${skip_github}" != "1" ]]; then
+    require_cmd gh
+
+    # Ensure release exists, then upload assets.
+    if ! gh release view "${tag}" --repo "${repo}" >/dev/null 2>&1; then
+      log "Creating GitHub release: ${tag}"
+      gh release create "${tag}" --repo "${repo}" --title "${tag}" --notes ""
+    fi
+
+    log "Uploading GitHub release assets…"
+    local assets=("${root}/${dmg}" "${root}/${dmg_sha}")
+    if [[ "${skip_sparkle}" != "1" ]]; then
+      assets+=("${root}/${appcast}")
+    fi
+    # Sparkle delta files are optional.
+    shopt -s nullglob
+    local deltas=("${root}"/dist/sparkle/*.delta)
+    shopt -u nullglob
+    assets+=("${deltas[@]}")
+
+    gh release upload "${tag}" --repo "${repo}" --clobber "${assets[@]}"
+  fi
+
+  if [[ "${skip_brew}" != "1" ]]; then
+    require_cmd gh
+    require_cmd /usr/bin/shasum
+    require_cmd /usr/bin/ruby
+
+    local tap_tmp="${root}/.tmp/homebrew-tap"
+    rm -rf "${tap_tmp}"
+    mkdir -p "${tap_tmp}"
+
+    log "Cloning tap via gh: ${tap}"
+    gh repo clone "${tap}" "${tap_tmp}"
+
+    local casks_dir="${tap_tmp}/Casks"
+    mkdir -p "${casks_dir}"
+    local cask_file="${casks_dir}/aerialflow.rb"
+
+    local sha256
+    sha256="$(/usr/bin/awk '{print $1; exit}' "${root}/${dmg_sha}")"
+    [[ -n "${sha256}" ]] || die "Could not parse sha256 from: ${dmg_sha}"
+
+    local dmg_name
+    dmg_name="$(basename -- "${dmg}")"
+    local url="https://github.com/${repo}/releases/download/${tag}/${dmg_name}"
+
+    log "Writing cask: ${cask_file}"
+    /usr/bin/ruby -e 'File.write(ARGV[0], ARGV[1])' "${cask_file}" "$(cat <<EOF
+cask "aerialflow" do
+  version "${version}"
+  sha256 "${sha256}"
+
+  url "${url}",
+      verified: "github.com/${repo}/"
+  name "AerialFlow"
+  desc "Fixes macOS Aerial wallpaper rotation and adds screensaver controls"
+  homepage "https://github.com/${repo}"
+
+  auto_updates true
+  depends_on macos: ">= :sequoia"
+
+  app "AerialFlow.app"
+end
+EOF
+)"
+
+    log "Committing + pushing tap update…"
+    (
+      cd "${tap_tmp}"
+      if [[ -z "$(git config user.name || true)" ]]; then
+        git config user.name "AerialFlow Release Bot"
+      fi
+      if [[ -z "$(git config user.email || true)" ]]; then
+        git config user.email "release-bot@users.noreply.github.com"
+      fi
+      git add "${cask_file}"
+      git commit -m "aerialflow ${version}"
+      git push
+    )
+  fi
+
+  log "Production release complete."
+}
+
+main() {
+  local cmd="${1:-}"
+  shift || true
+
+  case "${cmd}" in
+    version)
+      local sub="${1:-}"; shift || true
+      case "${sub}" in
+        set) cmd_version_set "$@" ;;
+        *) die_usage "Unknown subcommand: version ${sub}" ;;
+      esac
+      ;;
+    build)
+      local sub="${1:-}"; shift || true
+      case "${sub}" in
+        local) cmd_build_local "$@" ;;
+        *) die_usage "Unknown subcommand: build ${sub}" ;;
+      esac
+      ;;
+    release)
+      local sub="${1:-}"; shift || true
+      case "${sub}" in
+        production) cmd_release_production "$@" ;;
+        *) die_usage "Unknown subcommand: release ${sub}" ;;
+      esac
+      ;;
+    -h|--help|"")
+      usage; exit 0 ;;
+    *)
+      die_usage "Unknown command: ${cmd}" ;;
+  esac
+}
+
+main "$@"
+

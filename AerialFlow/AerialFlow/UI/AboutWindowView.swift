@@ -20,7 +20,7 @@ struct AboutWindowView: View {
         .frame(width: 640, height: 320)
         .sheet(isPresented: $isShowingLicense) {
             TextDocumentSheet(
-                title: "License Agreement",
+                title: "MIT License",
                 text: BundledText.loadLicenseText()
             )
         }
@@ -69,10 +69,8 @@ struct AboutWindowContentView: View {
                 }
             }
 
-            Spacer(minLength: 0)
-
             HStack(spacing: 12) {
-                Button("License Agreement") { isShowingLicense = true }
+                Button("MIT License") { isShowingLicense = true }
                 Button("Acknowledgments") { isShowingAcknowledgments = true }
                 Button("Buy Me a Coffee…") { onDonate() }
             }
@@ -83,13 +81,7 @@ struct AboutWindowContentView: View {
 
 enum BundledText {
     static func loadLicenseText() -> String {
-        let channel = AppDistributionChannel.current()
-        switch channel {
-        case .appStore:
-            return load("License-AppStore", fileExtension: "txt")
-        case .direct:
-            return load("License-Direct", fileExtension: "txt")
-        }
+        load("License-Direct", fileExtension: "txt")
     }
 
     static func load(_ name: String, fileExtension: String) -> String {

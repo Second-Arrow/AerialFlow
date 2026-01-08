@@ -2,13 +2,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=Scripts/common.sh
+# shellcheck source=Scripts/lib/common.sh
 source "${SCRIPT_DIR}/common.sh"
 
 usage() {
   cat <<'EOF'
 Usage:
-  Scripts/sign_app.sh <path-to-app> [--identity "<Developer ID Application: ...>"]
+  Scripts/lib/sign_app.sh <path-to-app> [--identity "<Developer ID Application: ...>"]
 
 Environment:
   SIGN_IDENTITY  Optional fallback for --identity.
@@ -71,5 +71,4 @@ log "Universal arch check (lipo)…"
 /usr/bin/lipo -archs "${APP_PATH}/Contents/MacOS/"* | /usr/bin/awk '{print "archs:", $0}'
 
 log "OK"
-
 

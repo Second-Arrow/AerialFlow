@@ -2,13 +2,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=Scripts/common.sh
+# shellcheck source=Scripts/lib/common.sh
 source "${SCRIPT_DIR}/common.sh"
 
 usage() {
   cat <<'EOF'
 Usage:
-  Scripts/notarize.sh --profile <notarytool-profile> --file <path> [--staple <path>]
+  Scripts/lib/notarize.sh --profile <notarytool-profile> --file <path> [--staple <path>]
 
 Notes:
   - Uses: xcrun notarytool submit --wait
@@ -54,5 +54,4 @@ if [[ -n "${STAPLE_PATH}" ]]; then
 fi
 
 log "OK"
-
 

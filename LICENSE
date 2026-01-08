@@ -1,14 +1,22 @@
+MIT License
+
 Copyright (c) 2026 Second Arrow
-All rights reserved.
 
-This repository is not licensed as open source.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-If you obtained AerialFlow via the Apple App Store, your use of the app is governed by the
-Apple Standard End User License Agreement ("Apple Standard EULA"), as presented in the App Store.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-Reference copy of the Apple Standard EULA:
-https://www.apple.com/legal/internet-services/itunes/dev/stdeula/
-
-No license is granted to use, copy, modify, distribute, or create derivative works of the source
-code in this repository, except as required by applicable law or as separately agreed in writing.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 

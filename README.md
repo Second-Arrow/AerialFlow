@@ -5,7 +5,9 @@ A small macOS utility that fixes the Aerials screensaver bug where backgrounds d
 ## Features
 
 - 🔄 **Automatic Background Rotation**: Fixes the macOS Aerials screensaver bug that prevents automatic switching between Aerial videos
+- 💤 **Sleep-Aware (Energy Efficient)**: When macOS sleeps or all screens turn off, AerialFlow hibernates its scheduler (no periodic timer wakeups) and resumes intelligently when you wake your Mac
 - 📥 **Automatic Downloads**: Automatically downloads Aerial videos in 4K SDR 240fps quality
+- 🌗 **Light-Sensitive Filtering**: Optionally filter to darker Aerials outside a configurable “light allowed” time window, based on each Aerial’s preview-image brightness
 - ⌨️ **Hotkey Support**: Quick keyboard shortcuts for:
   - **Next Aerial**: Switch to the next Aerial background immediately
   - **Go To Screensaver**: Launch the screensaver
@@ -77,6 +79,8 @@ Default hotkeys can be customized in the app settings.
 Access settings via the menu bar icon:
 
 - **Rotation Interval**: Set how often backgrounds should rotate (if applicable)
+- **After sleep / display off**: Choose how AerialFlow resumes rotation after your Mac wakes (keep original time left, rotate immediately, or restart the timer)
+- **Light-sensitive filtering**: Enable filtering based on Aerial brightness, configure the allowed-light time range (shown in your system’s 12/24-hour format), and set the sensitivity threshold (values below 0.15 may be too strict)
 - **Hotkey Configuration**: Customize keyboard shortcuts
 - **Download Preferences**: Manage download behavior and storage
 
@@ -87,7 +91,8 @@ AerialFlow works by:
 1. **Catalog Management**: Maintains a local catalog of available Aerial videos
 2. **Automatic Downloads**: Downloads videos in 4K SDR 240fps quality when available
 3. **Rotation Control**: Manages the macOS wallpaper rotation to ensure Aerials switch properly
-4. **System Integration**: Integrates with macOS wallpaper and screensaver systems
+4. **Sleep-Aware Scheduling**: Hibernates rotation while your Mac sleeps or screens are off, then resumes based on your chosen behavior
+5. **System Integration**: Integrates with macOS wallpaper and screensaver systems
 
 ## Project Structure
 
@@ -129,19 +134,34 @@ If you don’t have a Developer ID / notarization set up yet, you can still buil
 Build an **unsigned universal** `.app` into `dist/unsigned/`:
 
 ```bash
-bash Scripts/build_unsigned.sh
+bash Scripts/af build local
 ```
 
 Optional: create an **unsigned DMG**:
 
 ```bash
-bash Scripts/build_unsigned.sh --dmg
+bash Scripts/af build local --dmg
 ```
 
 Optional: copy into an install directory (may require `sudo` for `/Applications`):
 
 ```bash
-bash Scripts/build_unsigned.sh --install-to "/Applications"
+bash Scripts/af build local --install-to "/Applications"
+```
+
+## Homebrew installation (recommended)
+
+Install via Homebrew Cask (from our own tap):
+
+```bash
+brew tap second-arrow/homebrew-tap
+brew install --cask aerialflow
+```
+
+Upgrade later:
+
+```bash
+brew upgrade --cask aerialflow
 ```
 
 ### One-time setup (notarytool keychain profile)
@@ -160,15 +180,29 @@ xcrun notarytool store-credentials "AerialFlowNotary" \
 Run the release script from the repo root:
 
 ```bash
-bash Scripts/release_dmg.sh --notary-profile "AerialFlowNotary"
+bash Scripts/af release production --notary-profile "AerialFlowNotary"
 ```
 
 Optional: specify a signing identity explicitly:
 
 ```bash
-bash Scripts/release_dmg.sh \
+bash Scripts/af release production \
   --notary-profile "AerialFlowNotary" \
   --identity "Developer ID Application: <Name> (<TEAMID>)"
+```
+
+### Set the current version (committed)
+
+This updates `MARKETING_VERSION` and bumps `CURRENT_PROJECT_VERSION` in the Xcode project (and commits the change).
+
+```bash
+bash Scripts/af version set 1.2.3
+```
+
+If you want to set the version without creating a git tag:
+
+```bash
+bash Scripts/af version set 1.2.3 --no-tag
 ```
 
 ### Output
@@ -229,10 +263,7 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 
 ## License
 
-When distributed via the Apple App Store, AerialFlow is licensed under the Apple Standard End User License
-Agreement (EULA), as presented in the App Store.
-
-This repository is not licensed as open source.
+MIT License — see [`LICENSE`](LICENSE).
 
 Copyright (c) 2026 [Second Arrow](https://github.com/second-arrow)
 

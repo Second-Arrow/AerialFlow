@@ -17,6 +17,7 @@ struct AssetPickerTests {
             assets: assets,
             excludedCategoryIDs: [],
             excludedSubcategoryIDs: [],
+            excludedAssetIDs: [],
             currentAssetID: "c",
             randomMode: false,
             rng: &rng
@@ -36,6 +37,7 @@ struct AssetPickerTests {
             assets: assets,
             excludedCategoryIDs: [],
             excludedSubcategoryIDs: [],
+            excludedAssetIDs: [],
             currentAssetID: "zzz",
             randomMode: false,
             rng: &rng
@@ -55,6 +57,7 @@ struct AssetPickerTests {
             assets: assets,
             excludedCategoryIDs: ["earth"],
             excludedSubcategoryIDs: [],
+            excludedAssetIDs: [],
             currentAssetID: nil,
             randomMode: false,
             rng: &rng
@@ -74,6 +77,7 @@ struct AssetPickerTests {
             assets: assets,
             excludedCategoryIDs: [],
             excludedSubcategoryIDs: ["sub-1"],
+            excludedAssetIDs: [],
             currentAssetID: nil,
             randomMode: false,
             rng: &rng
@@ -94,11 +98,32 @@ struct AssetPickerTests {
             assets: assets,
             excludedCategoryIDs: [],
             excludedSubcategoryIDs: [],
+            excludedAssetIDs: [],
             currentAssetID: "b",
             randomMode: true,
             rng: &rng
         )
         #expect(next.id != "b")
+    }
+
+    @Test func testAssetIDExclusion_removesCandidates() throws {
+        let assets = [
+            AerialAsset(id: "a", categories: ["earth"], urlVariants: [:]),
+            AerialAsset(id: "b", categories: ["earth"], urlVariants: [:]),
+        ]
+        var rng = SeededRNG(seed: 1)
+        let picker = AssetPicker()
+
+        let next = try picker.pickNext(
+            assets: assets,
+            excludedCategoryIDs: [],
+            excludedSubcategoryIDs: [],
+            excludedAssetIDs: ["a"],
+            currentAssetID: nil,
+            randomMode: false,
+            rng: &rng
+        )
+        #expect(next.id == "b")
     }
 }
 

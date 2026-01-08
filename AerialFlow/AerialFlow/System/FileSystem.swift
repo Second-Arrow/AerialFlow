@@ -3,6 +3,8 @@ import Foundation
 /// A small seam around file IO, to keep `Core/` testable.
 protocol FileSystem: Sendable {
     func fileExists(at url: URL) -> Bool
+    func isReadable(at url: URL) -> Bool
+    func isWritable(at url: URL) -> Bool
     func readData(from url: URL) throws -> Data
     func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws
     func createDirectory(at url: URL) throws
@@ -16,6 +18,14 @@ protocol FileSystem: Sendable {
 struct DefaultFileSystem: FileSystem {
     func fileExists(at url: URL) -> Bool {
         FileManager.default.fileExists(atPath: url.path)
+    }
+
+    func isReadable(at url: URL) -> Bool {
+        FileManager.default.isReadableFile(atPath: url.path)
+    }
+
+    func isWritable(at url: URL) -> Bool {
+        FileManager.default.isWritableFile(atPath: url.path)
     }
 
     func readData(from url: URL) throws -> Data {

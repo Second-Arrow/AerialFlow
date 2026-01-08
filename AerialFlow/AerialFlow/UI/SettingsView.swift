@@ -1,136 +1,119 @@
 import SwiftUI
-import AppKit
 import KeyboardShortcuts
 import UniformTypeIdentifiers
+import UserNotifications
 
 struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.openURL) private var openURL
-    @State private var categorySearchText: String = ""
+
     @State private var catalogSnapshot: AerialCatalog.Snapshot?
     @State private var catalogErrorMessage: String?
     @State private var categoryDisplayNameByID: [String: String] = [:]
+    @State private var assetDisplayNameByID: [String: String] = [:]
+    @State private var currentAssetID: String?
+    @State private var exclusionsSearchText: String = ""
+
     @State private var isPickingIndexPlist: Bool = false
     @State private var indexPlistPickerError: String?
-    @State private var currentSubcategoryIDs: Set<String> = []
-    @State private var settingsWindow: NSWindow?
-    @State private var isAdvancedExpanded: Bool = false
+    @State private var localSelectedDestination: AppState.SettingsDestination = .general
 
-    private var currentTabName: String {
-        switch appState.selectedSettingsTab {
-        case .general: return "General"
-        case .rotation: return "Rotation"
-        case .categories: return "Categories"
-        case .hotkeys: return "Hotkeys"
-        case .diagnostics: return "Diagnostics"
-        case .about: return "About"
-        }
-    }
-
-    private func updateWindowTitle() {
-        // SwiftUI / AppKit may set the title to the active tab label after the selection changes
-        // (especially on first load). Set our title on the next runloop tick, then once more
-        // shortly after to ensure it “wins”.
-        let desiredTitle = "AerialFlow - \(currentTabName)"
-
-        DispatchQueue.main.async {
-            guard let window = settingsWindow else { return }
-            if window.title != desiredTitle {
-                window.title = desiredTitle
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { [weak window] in
-                guard let window else { return }
-                if window.title != desiredTitle {
-                    window.title = desiredTitle
-                }
-            }
-        }
-    }
+    private let sidebarSections: [(String, [AppState.SettingsDestination])] = [
+        ("Settings", [.general, .rotation, .filtering, .exclusions, .hotkeys]),
+        ("Tools", [.diagnostics]),
+        ("Other", [.advanced, .about]),
+    ]
 
     var body: some View {
-        VStack(spacing: 12) {
-            TabView(selection: $appState.selectedSettingsTab) {
-                pane(generalTab)
-                    .tabItem { Label("General", systemImage: "gearshape") }
-                    .tag(AppState.SettingsTab.general)
+        GeometryReader { proxy in
+            let titlebarInsetHeight = max(proxy.safeAreaInsets.top, 28)
+            // Start content a bit higher while still staying safely below the traffic lights.
+            let contentTopInset = max(titlebarInsetHeight - 10, 18)
+            let panelCornerRadius: CGFloat = 12
+            let panelShadowColor = Color.black.opacity(0.10)
+            let panelBorderColor = Color.primary.opacity(0.08)
 
-                pane(rotationTab)
-                    .tabItem { Label("Rotation", systemImage: "arrow.triangle.2.circlepath") }
-                    .tag(AppState.SettingsTab.rotation)
+            ZStack {
+                Color(nsColor: .windowBackgroundColor)
+                    .ignoresSafeArea()
 
-                pane(categoriesTab)
-                    .tabItem { Label("Categories", systemImage: "square.grid.2x2") }
-                    .tag(AppState.SettingsTab.categories)
+                VStack(spacing: 10) {
+                    // Reserve the titlebar / traffic-lights area so content never paints underneath it.
+                    Color.clear
+                        .frame(height: contentTopInset)
 
-                pane(hotkeysTab)
-                    .tabItem { Label("Hotkeys", systemImage: "keyboard") }
-                    .tag(AppState.SettingsTab.hotkeys)
+                    HStack(alignment: .top, spacing: 12) {
+                        List(selection: $localSelectedDestination) {
+                            ForEach(sidebarSections, id: \.0) { sectionTitle, destinations in
+                                Section(sectionTitle) {
+                                    ForEach(destinations, id: \.self) { destination in
+                                        Label(destination.title, systemImage: destination.systemImage)
+                                            .tag(destination)
+                                    }
+                                }
+                            }
+                        }
+                        .listStyle(.sidebar)
+                        .scrollContentBackground(.hidden)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
+                                .strokeBorder(panelBorderColor)
+                        )
+                        .shadow(color: panelShadowColor, radius: 10, x: 0, y: 4)
+                        .frame(width: 220)
 
-                pane(DiagnosticsView())
-                    .tabItem { Label("Diagnostics", systemImage: "stethoscope") }
-                    .tag(AppState.SettingsTab.diagnostics)
+                        detailView(for: localSelectedDestination)
+                            .scrollContentBackground(.hidden)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
+                                    .strokeBorder(panelBorderColor)
+                            )
+                            .shadow(color: panelShadowColor, radius: 10, x: 0, y: 4)
+                    }
 
-                pane(AboutView(), contentAlignment: .center)
-                    .tabItem { Label("About", systemImage: "info.circle") }
-                    .tag(AppState.SettingsTab.about)
-            }
-            // Prefer classic toolbar-style preferences tabs.
-            .tabViewStyle(.automatic)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Current Aerial: \(appState.statusLine)")
+                            .font(.footnote)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .foregroundStyle(
+                                appState.lastErrorMessage == nil
+                                    ? AnyShapeStyle(.secondary)
+                                    : AnyShapeStyle(Color.red)
+                            )
 
-            Divider()
-
-            HStack(alignment: .firstTextBaseline) {
-                Text("Current Aerial: \(appState.statusLine)")
-                    .font(.footnote)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .foregroundStyle(
-                        appState.lastErrorMessage == nil
-                            ? AnyShapeStyle(.secondary)
-                            : AnyShapeStyle(Color.red)
+//                        Button("Support Development…") {
+//                            guard let url = Constants.supportURL else { return }
+//                            openURL(url)
+//                        }
+                        .font(.footnote)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: panelCornerRadius, style: .continuous)
+                            .strokeBorder(panelBorderColor)
                     )
-
-                Button("Support Development…") {
-                    guard let url = Constants.supportURL else { return }
-                    openURL(url)
+                    .shadow(color: panelShadowColor, radius: 10, x: 0, y: 4)
                 }
-                .font(.footnote)
+                .padding(.horizontal, 18)
+                .padding(.bottom, 16)
             }
         }
-        .padding(20)
-        .frame(width: 640, height: 560)
-        .background(SettingsWindowAccessor { window in
-            if settingsWindow !== window {
-                settingsWindow = window
-                updateWindowTitle()
-            }
-        })
-        .onChange(of: appState.selectedSettingsTab) { _, _ in
-            updateWindowTitle()
-        }
+        .frame(width: 760, height: 620)
         .onAppear {
-            updateWindowTitle()
+            localSelectedDestination = appState.selectedSettingsDestination
         }
-        .task {
-            guard catalogSnapshot == nil, catalogErrorMessage == nil else { return }
-            do {
-                let snapshot = try await appState.loadCatalogSnapshot()
-                catalogSnapshot = snapshot
-                let mainCategories = AerialCategory.uniqueMainCategories(snapshot.categories)
-                let rows = CategoryRow.rows(fromMainCategories: mainCategories)
-                categoryDisplayNameByID = await appState.categoryDisplayNamesByID(categories: rows.map(\.category))
-            } catch {
-                catalogErrorMessage = error.localizedDescription
-            }
+        .onChange(of: localSelectedDestination) { _, newValue in
+            appState.selectedSettingsDestination = newValue
         }
-        .task {
-            currentSubcategoryIDs = await appState.currentSubcategoryIDs()
-        }
+        .task { await loadCatalogDataIfNeeded() }
+        .task { await refreshCurrentAssetID() }
         .onChange(of: appState.statusLine) { _, _ in
-            Task {
-                currentSubcategoryIDs = await appState.currentSubcategoryIDs()
-            }
+            Task { await refreshCurrentAssetID() }
         }
         .fileImporter(
             isPresented: $isPickingIndexPlist,
@@ -155,16 +138,52 @@ struct SettingsView: View {
         }
     }
 
-    private var generalTab: some View {
-        VStack(alignment: .leading, spacing: 18) {
+    // MARK: - Detail routing
+
+    @ViewBuilder
+    private func detailView(for destination: AppState.SettingsDestination) -> some View {
+        switch destination {
+        case .general:
+            generalPane
+        case .rotation:
+            rotationPane
+        case .filtering:
+            filteringPane
+        case .exclusions:
+            exclusionsPane
+        case .hotkeys:
+            hotkeysPane
+        case .diagnostics:
+            DiagnosticsView()
+        case .advanced:
+            advancedPane
+        case .about:
+            AboutView()
+        }
+    }
+
+    // MARK: - Panes
+
+    private var generalPane: some View {
+        Form {
+            Section {
+                Text("Control how AerialFlow runs in the background and how it interacts with macOS permissions and notifications.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("System access") {
+                SystemAccessStatusView(
+                    report: appState.systemAccessReport,
+                    onRefresh: { appState.refreshSystemAccessReport() }
+                )
+            }
+
+            Section("Startup") {
             let launchAtLoginBinding = Binding(
                 get: { appState.settings.launchAtLogin },
                 set: { appState.setLaunchAtLoginEnabled($0) }
             )
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Startup")
-                    .font(.headline)
 
                 Toggle("Launch at login", isOn: launchAtLoginBinding)
                     .help("Launch AerialFlow automatically after you sign in. macOS may require approval in Login Items.")
@@ -178,116 +197,86 @@ struct SettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+
+                Button("Open Login Items…") {
+                    appState.openLoginItemsSettings()
+                }
+                .help("Open System Settings where macOS asks you to approve AerialFlow as a login item.")
             }
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Run Conditions")
-                    .font(.headline)
+            Section("Storage") {
+            let excludedCleanupEnabledBinding = Binding(
+                get: { appState.settings.isExcludedAerialCleanupEnabled },
+                set: { appState.settings.isExcludedAerialCleanupEnabled = $0 }
+            )
 
-                Toggle(
-                    "Don’t run when display is off",
-                    isOn: Binding(
-                        get: { appState.settings.skipWhenDisplayOff },
-                        set: { appState.settings.skipWhenDisplayOff = $0 }
-                    )
-                )
-                .help("Skips scheduled rotation when your displays are asleep.")
+                    Toggle("Automatically remove excluded Aerials", isOn: excludedCleanupEnabledBinding)
+                        .help("Once a day, remove excluded Aerial .mov files from the storage location. This does not run while your Mac is asleep.")
 
-                Toggle(
-                    "Don’t run while screensaver active",
-                    isOn: Binding(
-                        get: { appState.settings.skipWhenScreensaverActive },
-                        set: { appState.settings.skipWhenScreensaverActive = $0 }
-                    )
-                )
-                .help("Skips scheduled rotation while the screensaver is running.")
+                HStack(spacing: 10) {
+                    Button("Clean Now") {
+                        appState.cleanExcludedAerialsNow()
+                    }
+                    .disabled(appState.isCleaningExcludedAerials)
+                    .help("Remove excluded Aerial .mov files now (even if the daily schedule is off).")
 
-                Toggle(
-                    "Don’t run at login window",
-                    isOn: Binding(
-                        get: { appState.settings.skipAtLoginWindow },
-                        set: { appState.settings.skipAtLoginWindow = $0 }
-                    )
-                )
-                .help("Skips scheduled rotation when macOS is showing the login window.")
+                    if appState.isCleaningExcludedAerials {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
 
-                Text("These conditions apply to scheduled background rotation. Manual actions (like \"Next Aerial\") can still be used.")
+                Text("This affects downloaded video files only; it does not change your exclusions.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
 
-            let timeoutMinutesBinding = Binding<Int>(
-                get: { max(1, Int(appState.settings.downloadTimeout) / 60) },
-                set: { appState.settings.downloadTimeout = TimeInterval(max(60, $0 * 60)) }
-            )
+            Section("Updates") {
+                CheckForUpdatesView()
+            }
 
-            let backupRetentionBinding = Binding<Int>(
-                get: { appState.settings.backupRetentionCount },
-                set: { appState.settings.backupRetentionCount = $0 }
-            )
-
-            VStack(alignment: .leading, spacing: 10) {
-                DisclosureGroup(isExpanded: $isAdvancedExpanded) {
-                    SettingsRow("Download timeout") {
-                        Stepper(value: timeoutMinutesBinding, in: 1...120, step: 1) {
-                            Text("\(timeoutMinutesBinding.wrappedValue) min")
-                        }
+            Section("Notifications") {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Status: \(notificationStatusText(appState.notificationAuthorizationStatus))")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Refresh") {
+                        Task { await appState.refreshNotificationAuthorizationStatus() }
                     }
-                    .help("How long AerialFlow will wait for a download to complete before failing.")
-
-                    SettingsRow("Index.plist") {
-                        Text(appState.settings.indexPlistURL.path)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .textSelection(.enabled)
-                    }
-                    .help("The Index.plist file AerialFlow edits to apply the next Aerial. The default is the system wallpaper store.")
-
-                    SettingsRow("Index.plist location") {
-                        HStack(spacing: 8) {
-                            Button("Choose…") {
-                                isPickingIndexPlist = true
-                            }
-                            .help("Select a custom Index.plist location. Most users should keep the default.")
-                            Button("Reset") {
-                                appState.settings.indexPlistURL = WallpaperStoreEditor.defaultIndexPlistURL
-                            }
-                            .help("Restore the default system wallpaper store location.")
-                        }
-                    }
-
-                    SettingsRow("Backups to keep") {
-                        Stepper(value: backupRetentionBinding, in: 1...Constants.maximumBackupRetentionCount, step: 1) {
-                            Text("\(backupRetentionBinding.wrappedValue)")
-                        }
-                    }
-                    .help("How many Index.plist backups AerialFlow keeps next to the original. Older backups are pruned automatically.")
-                } label: {
-                    Text("Advanced")
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            isAdvancedExpanded.toggle()
-                        }
                 }
+
+                HStack(spacing: 10) {
+                    Button("Enable Notifications…") {
+                        appState.requestNotificationAuthorization()
+                    }
+                    .disabled(appState.notificationAuthorizationStatus != .notDetermined)
+
+                    Button("Open Notification Settings…") {
+                        appState.openNotificationSettings()
+                    }
+                }
+
+                Text("Used to show an alert if a user-triggered action fails (for example: Next Aerial).")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
+        .formStyle(.grouped)
     }
 
-    private var rotationTab: some View {
-        VStack(alignment: .leading, spacing: 18) {
+    private var rotationPane: some View {
+        Form {
+            Section {
+                Text("Schedule automatic background changes. Rotation pauses while your Mac sleeps or screens are off.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Rotation") {
             let rotationEnabledBinding = Binding(
                 get: { appState.settings.isRotationEnabled },
                 set: { appState.settings.isRotationEnabled = $0 }
             )
-
-            let minutesBinding = Binding<Int>(
-                get: { max(1, appState.settings.rotationIntervalSeconds / 60) },
-                set: { appState.settings.rotationIntervalSeconds = max(60, $0 * 60) }
-            )
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Rotation")
-                    .font(.headline)
 
                 Toggle("Enable scheduled rotation", isOn: rotationEnabledBinding)
                     .help("Automatically switch to the next Aerial on a schedule.")
@@ -301,31 +290,113 @@ struct SettingsView: View {
                 )
                 .help("Pick a random eligible Aerial instead of cycling in order. Some repeats may occur over time.")
 
-                SettingsRow("Interval") {
-                    Stepper(value: minutesBinding, in: 1...Constants.maximumRotationIntervalMinutes, step: 1) {
-                        Text("\(minutesBinding.wrappedValue) min")
-                    }
+                let minutesBinding = Binding<Int>(
+                    get: { max(1, appState.settings.rotationIntervalSeconds / 60) },
+                    set: { appState.settings.rotationIntervalSeconds = max(60, $0 * 60) }
+                )
+
+                LabeledContent("Interval") {
+                    RotationIntervalControl(
+                        minutes: minutesBinding,
+                        minMinutes: 1,
+                        sliderMaxMinutes: Constants.maximumRotationIntervalMinutes
+                    )
                 }
                 .disabled(!appState.settings.isRotationEnabled)
-                .help("How often AerialFlow schedules a rotation. Minimum 1 minute, maximum 4 hours.")
 
-                if appState.settings.isRotationEnabled {
-                    Text("AerialFlow runs quietly in the background and advances your wallpaper on the chosen interval.")
+                let resumeBehaviorBinding = Binding<AppSettings.SleepResumeBehavior>(
+                    get: { appState.settings.sleepResumeBehavior },
+                    set: { appState.settings.sleepResumeBehavior = $0 }
+                )
+
+                LabeledContent("After sleep / display off") {
+                    Picker("", selection: resumeBehaviorBinding) {
+                        Text("Use original time left")
+                            .tag(AppSettings.SleepResumeBehavior.useOriginalTimeLeft)
+                        Text("Immediately go to next Aerial")
+                            .tag(AppSettings.SleepResumeBehavior.immediatelyGoToNextAerial)
+                        Text("Restart the rotation timer")
+                            .tag(AppSettings.SleepResumeBehavior.restartRotationTimer)
+                    }
+                    .labelsHidden()
+                }
+                .help("What to do when macOS wakes up or your displays turn back on.")
+
+                Text("AerialFlow stores the remaining time when sleep/screen-off happens, then resumes based on this setting.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var filteringPane: some View {
+        Form {
+            Section {
+                Text("Optionally prefer darker Aerials outside a time window, based on each Aerial’s preview-image brightness.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                } else {
-                    Text("Turn on scheduled rotation to adjust the interval.")
+            }
+
+            Section("Light-sensitive filtering") {
+                let enabledBinding = Binding(
+                        get: { appState.settings.isLightSensitiveFilteringEnabled },
+                        set: { appState.settings.isLightSensitiveFilteringEnabled = $0 }
+                )
+
+                Toggle("Enable light-sensitive filtering", isOn: enabledBinding)
+                    .help("Outside the allowed light window, AerialFlow prefers darker Aerials.")
+
+                LabeledContent("Light allowed") {
+                    TimeRangeSlider(
+                        title: "",
+                        startMinutes: Binding(
+                            get: { appState.settings.allowedLightStartMinutes },
+                            set: { appState.settings.allowedLightStartMinutes = $0 }
+                        ),
+                        endMinutes: Binding(
+                            get: { appState.settings.allowedLightEndMinutes },
+                            set: { appState.settings.allowedLightEndMinutes = $0 }
+                        ),
+                        range: 0...(24 * 60),
+                        step: 5
+                    )
+                    .frame(maxWidth: 360)
+                }
+                .disabled(!appState.settings.isLightSensitiveFilteringEnabled)
+
+                LabeledContent("Sensitivity") {
+                    let sensitivityBinding = Binding<Double>(
+                        get: { appState.settings.lightSensitivity },
+                        set: { appState.settings.lightSensitivity = $0 }
+                    )
+
+                    HStack(spacing: 10) {
+                        Slider(value: sensitivityBinding, in: 0...1, step: 0.01)
+                            .frame(width: 260)
+                        Text(sensitivityBinding.wrappedValue.formatted(.number.precision(.fractionLength(2))))
+                            .foregroundStyle(.secondary)
+                            .frame(minWidth: 44, alignment: .trailing)
+                    }
+                }
+                .disabled(!appState.settings.isLightSensitiveFilteringEnabled)
+                .help("Brightness threshold (0–1). Outside the allowed window, only Aerials below this value are eligible.")
+
+                if appState.settings.isLightSensitiveFilteringEnabled, appState.settings.lightSensitivity < 0.15 {
+                    Text("Tip: very low sensitivity values (below 0.15) can be too strict and may not find any suitable Aerials.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
         }
+        .formStyle(.grouped)
     }
 
-    private var categoriesTab: some View {
+    private var exclusionsPane: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Excluded Categories")
-                .font(.headline)
+            Text("Exclude categories and individual Aerials from selection and scheduled rotation.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
 
             if let catalogErrorMessage {
                 Text(catalogErrorMessage)
@@ -335,10 +406,12 @@ struct SettingsView: View {
 
             if let snapshot = catalogSnapshot {
                 let mainCategories = AerialCategory.uniqueMainCategories(snapshot.categories)
-                let rows = CategoryRow.rows(fromMainCategories: mainCategories)
+                let rows = ExclusionRow.rows(fromMainCategories: mainCategories, assets: snapshot.assets)
+
                 ExcludedCategoriesPicker(
                     rows: rows,
                     categoryDisplayNameByID: categoryDisplayNameByID,
+                    assetDisplayNameByID: assetDisplayNameByID,
                     excludedCategoryIDs: Binding(
                         get: { appState.settings.excludedCategoryIDs },
                         set: { appState.settings.excludedCategoryIDs = $0 }
@@ -347,81 +420,184 @@ struct SettingsView: View {
                         get: { appState.settings.excludedSubcategoryIDs },
                         set: { appState.settings.excludedSubcategoryIDs = $0 }
                     ),
-                    searchText: $categorySearchText,
-                    currentSubcategoryIDs: currentSubcategoryIDs
+                    excludedAssetIDs: Binding(
+                        get: { appState.settings.excludedAssetIDs },
+                        set: { appState.settings.excludedAssetIDs = $0 }
+                    ),
+                    searchText: $exclusionsSearchText,
+                    currentAssetID: currentAssetID
                 )
             } else {
-                Text("Loading categories…")
+                Text("Loading Aerial catalog…")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: 560, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(20)
+    }
+
+    private var hotkeysPane: some View {
+        Form {
+            Section {
+                Text("Hotkeys are global. If a shortcut doesn’t work, it’s often due to macOS permissions or conflicts with another app.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
 
-            Text("Checked categories and subcategories are excluded from selection and rotation.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            Section("Aerial navigation") {
+                LabeledContent("Next Aerial") {
+                        KeyboardShortcuts.Recorder("", name: .nextAerial)
+                    }
+                    .help("Immediately switch to the next Aerial wallpaper.")
+
+                LabeledContent("Next In Subcategory") {
+                        KeyboardShortcuts.Recorder("", name: .nextInSubcategory)
+                    }
+                    .help("Advance within the current Aerial’s primary subcategory (deterministic).")
+
+                LabeledContent("Exclude current aerial + Next") {
+                        KeyboardShortcuts.Recorder("", name: .excludeCurrentSubcategoryAndNext)
+                    }
+                    .help("Exclude the current Aerial and immediately switch to the next eligible Aerial.")
+            }
+
+            Section("System controls") {
+                LabeledContent("Pause / Continue") {
+                        KeyboardShortcuts.Recorder("", name: .togglePause)
+                    }
+                    .help("Toggle scheduled rotation on or off.")
+
+                LabeledContent("Go To Screensaver") {
+                        KeyboardShortcuts.Recorder("", name: .goToScreensaver)
+                    }
+                    .help("Start the screensaver right away.")
+            }
+
+            Section("Permissions") {
+                Text("If hotkeys don’t work, enable AerialFlow in these macOS privacy sections:")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 10) {
+                        Button("Open Input Monitoring…") {
+                            appState.openInputMonitoringSettings()
+                        }
+                        Button("Open Accessibility…") {
+                            appState.openAccessibilitySettings()
+                        }
+                    }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var advancedPane: some View {
+        Form {
+            Section {
+                Text("These options are for troubleshooting and custom setups. Most users should leave them at the defaults.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Downloads") {
+                let timeoutMinutesBinding = Binding<Int>(
+                    get: { max(1, Int(appState.settings.downloadTimeout) / 60) },
+                    set: { appState.settings.downloadTimeout = TimeInterval(max(60, $0 * 60)) }
+                )
+
+                LabeledContent("Download timeout") {
+                    Stepper(value: timeoutMinutesBinding, in: 1...120, step: 1) {
+                        Text("\(timeoutMinutesBinding.wrappedValue) min")
+                            .frame(minWidth: 72, alignment: .trailing)
+                    }
+                }
+                .help("How long AerialFlow will wait for a download to complete before failing.")
+            }
+
+            Section("Wallpaper store") {
+                LabeledContent("Index.plist") {
+                    Text(appState.settings.indexPlistURL.path)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .foregroundStyle(.secondary)
+                }
+                .help("The Index.plist file AerialFlow edits to apply the next Aerial. The default is the system wallpaper store.")
+
+                LabeledContent("Location") {
+                    HStack(spacing: 8) {
+                        Button("Choose…") {
+                            isPickingIndexPlist = true
+                        }
+                        Button("Reset") {
+                            appState.settings.indexPlistURL = WallpaperStoreEditor.defaultIndexPlistURL
+                        }
+                    }
+                }
+
+                Text("Changing this can prevent AerialFlow from updating your wallpaper if it points to the wrong store.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Backups") {
+                let backupRetentionBinding = Binding<Int>(
+                    get: { appState.settings.backupRetentionCount },
+                    set: { appState.settings.backupRetentionCount = $0 }
+                )
+
+                LabeledContent("Backups to keep") {
+                    Stepper(value: backupRetentionBinding, in: 1...Constants.maximumBackupRetentionCount, step: 1) {
+                        Text("\(backupRetentionBinding.wrappedValue)")
+                            .frame(minWidth: 44, alignment: .trailing)
+                    }
+                }
+                .help("How many Index.plist backups AerialFlow keeps next to the original. Older backups are pruned automatically.")
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    // MARK: - Helpers
+
+    private func notificationStatusText(_ status: UNAuthorizationStatus?) -> String {
+        guard let status else { return "Unknown" }
+        switch status {
+        case .notDetermined: return "Not determined"
+        case .denied: return "Denied"
+        case .authorized: return "Allowed"
+        case .provisional: return "Provisional"
+        case .ephemeral: return "Ephemeral"
+        @unknown default: return "Unknown"
         }
     }
 
-    private var hotkeysTab: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Hotkeys")
-                .font(.headline)
-
-            SettingsRow("Next Aerial") {
-                KeyboardShortcuts.Recorder("", name: .nextAerial)
-            }
-            .help("Immediately switch to the next Aerial wallpaper.")
-
-            SettingsRow("Exclude current subcategory + Next") {
-                KeyboardShortcuts.Recorder("", name: .excludeCurrentSubcategoryAndNext)
-            }
-            .help("Exclude the current Aerial’s subcategory and immediately switch to the next eligible Aerial.")
-
-            SettingsRow("Pause / Continue") {
-                KeyboardShortcuts.Recorder("", name: .togglePause)
-            }
-            .help("Toggle scheduled rotation on or off.")
-
-            SettingsRow("Go To Screensaver") {
-                KeyboardShortcuts.Recorder("", name: .goToScreensaver)
-            }
-            .help("Start the screensaver right away.")
-
-            Text("Hotkeys are global and may conflict with other apps. If one doesn't work, choose a different shortcut.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
+    private func refreshCurrentAssetID() async {
+        currentAssetID = await appState.currentAssetID()
     }
 
+    private func loadCatalogDataIfNeeded() async {
+        guard catalogSnapshot == nil, catalogErrorMessage == nil else { return }
+        do {
+            let snapshot = try await appState.loadCatalogSnapshot()
+            catalogSnapshot = snapshot
 
-    @ViewBuilder
-    private func pane<Content: View>(_ content: Content, contentAlignment: Alignment = .leading) -> some View {
-        ScrollView {
-            content
-                .frame(maxWidth: 560, alignment: contentAlignment)
-                .frame(maxWidth: .infinity, alignment: contentAlignment)
-                .padding(.top, 6)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-private struct SettingsWindowAccessor: NSViewRepresentable {
-    let onResolve: (NSWindow) -> Void
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async { [weak view] in
-            guard let window = view?.window else { return }
-            onResolve(window)
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async { [weak nsView] in
-            guard let window = nsView?.window else { return }
-            onResolve(window)
+            let mainCategories = AerialCategory.uniqueMainCategories(snapshot.categories)
+            let rows = ExclusionRow.rows(fromMainCategories: mainCategories, assets: snapshot.assets)
+            let categories = rows.compactMap { row in
+                switch row {
+                case .category(let category, _, _):
+                    return category
+                case .asset:
+                    return nil
+                }
+            }
+            categoryDisplayNameByID = await appState.categoryDisplayNamesByID(categories: categories)
+            assetDisplayNameByID = await appState.assetDisplayNamesByID(assets: snapshot.assets)
+        } catch {
+            catalogErrorMessage = error.localizedDescription
         }
     }
 }

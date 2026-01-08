@@ -11,6 +11,7 @@ struct AerialAsset: Decodable, Hashable, Sendable {
     let subcategories: [String]
     let localizedNameKey: String?
     let shotID: String?
+    let previewImageURL: URL?
     let urlVariants: [String: URL]
 
     private enum KnownKeys: String, CodingKey {
@@ -19,6 +20,7 @@ struct AerialAsset: Decodable, Hashable, Sendable {
         case subcategories
         case localizedNameKey
         case shotID
+        case previewImage
     }
 
     private struct DynamicKey: CodingKey {
@@ -34,6 +36,7 @@ struct AerialAsset: Decodable, Hashable, Sendable {
         subcategories: [String] = [],
         localizedNameKey: String? = nil,
         shotID: String? = nil,
+        previewImageURL: URL? = nil,
         urlVariants: [String: URL]
     ) {
         self.id = id
@@ -41,6 +44,7 @@ struct AerialAsset: Decodable, Hashable, Sendable {
         self.subcategories = subcategories
         self.localizedNameKey = localizedNameKey
         self.shotID = shotID
+        self.previewImageURL = previewImageURL
         self.urlVariants = urlVariants
     }
 
@@ -53,6 +57,13 @@ struct AerialAsset: Decodable, Hashable, Sendable {
         self.subcategories = (try? known.decode([String].self, forKey: .subcategories)) ?? []
         self.localizedNameKey = try? known.decode(String.self, forKey: .localizedNameKey)
         self.shotID = try? known.decode(String.self, forKey: .shotID)
+        if let urlString = try? known.decode(String.self, forKey: .previewImage) {
+            self.previewImageURL = URL(string: urlString)
+        } else if let url = try? known.decode(URL.self, forKey: .previewImage) {
+            self.previewImageURL = url
+        } else {
+            self.previewImageURL = nil
+        }
 
         var variants: [String: URL] = [:]
         for key in dynamic.allKeys where key.stringValue.hasPrefix("url-") {
@@ -76,8 +87,13 @@ extension AerialAsset {
 
     func isExcluded(
         excludedMainCategoryIDs: Set<String>,
-        excludedSubcategoryIDs: Set<String>
+        excludedSubcategoryIDs: Set<String>,
+        excludedAssetIDs: Set<String>
     ) -> Bool {
+        if !excludedAssetIDs.isEmpty, excludedAssetIDs.contains(id) {
+            return true
+        }
+
         if !excludedMainCategoryIDs.isEmpty {
             let mainIDs = Set(categories)
             if !excludedMainCategoryIDs.isDisjoint(with: mainIDs) {
