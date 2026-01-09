@@ -449,7 +449,8 @@ cmd_release_production() {
     fi
     # Sparkle delta files are optional.
     shopt -s nullglob
-    local deltas=("${root}"/dist/sparkle/*.delta)
+    local -a deltas=()
+    deltas+=("${root}"/dist/sparkle/*.delta)
     shopt -u nullglob
     assets+=("${deltas[@]}")
 
