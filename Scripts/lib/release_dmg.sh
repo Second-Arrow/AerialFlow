@@ -8,10 +8,15 @@ source "${SCRIPT_DIR}/common.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  Scripts/lib/release_dmg.sh --notary-profile <profile> [--identity "<Developer ID Application: ...>"] [--sparkle-tag <tag>] [--sparkle-repo <owner/repo>]
+  Scripts/lib/release_dmg.sh [--identity "<Developer ID Application: ...>"] \
+    [--sparkle-tag <tag>] [--sparkle-repo <owner/repo>] \
+    (--notary-profile <profile> | --notary-api-key <key.p8> --notary-key-id <id> --notary-issuer <uuid>)
 
 Environment:
   NOTARYTOOL_PROFILE  Optional fallback for --notary-profile.
+  NOTARY_API_KEY      Optional fallback for --notary-api-key.
+  NOTARY_KEY_ID       Optional fallback for --notary-key-id.
+  NOTARY_ISSUER       Optional fallback for --notary-issuer.
   SIGN_IDENTITY       Optional fallback for --identity.
   SPARKLE_TAG         Optional fallback for --sparkle-tag.
   SPARKLE_REPO        Optional fallback for --sparkle-repo.
@@ -24,6 +29,9 @@ EOF
 }
 
 NOTARY_PROFILE="${NOTARYTOOL_PROFILE:-}"
+NOTARY_API_KEY="${NOTARY_API_KEY:-}"
+NOTARY_KEY_ID="${NOTARY_KEY_ID:-}"
+NOTARY_ISSUER="${NOTARY_ISSUER:-}"
 IDENTITY="${SIGN_IDENTITY:-}"
 SPARKLE_TAG="${SPARKLE_TAG:-}"
 SPARKLE_REPO="${SPARKLE_REPO:-second-arrow/AerialFlow}"
@@ -32,6 +40,12 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --notary-profile)
       NOTARY_PROFILE="${2:-}"; shift 2 ;;
+    --notary-api-key)
+      NOTARY_API_KEY="${2:-}"; shift 2 ;;
+    --notary-key-id)
+      NOTARY_KEY_ID="${2:-}"; shift 2 ;;
+    --notary-issuer)
+      NOTARY_ISSUER="${2:-}"; shift 2 ;;
     --identity)
       IDENTITY="${2:-}"; shift 2 ;;
     --sparkle-tag)
@@ -45,11 +59,23 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "${NOTARY_PROFILE}" ]] || { usage; die "Missing --notary-profile (or set NOTARYTOOL_PROFILE)"; }
+# Validate authentication method
+if [[ -n "${NOTARY_PROFILE}" ]]; then
+  if [[ -n "${NOTARY_API_KEY}" || -n "${NOTARY_KEY_ID}" || -n "${NOTARY_ISSUER}" ]]; then
+    { usage; die "Cannot use both --notary-profile and --notary-api-key options. Choose one authentication method."; }
+  fi
+elif [[ -n "${NOTARY_API_KEY}" ]]; then
+  [[ -n "${NOTARY_KEY_ID}" ]] || { usage; die "Missing --notary-key-id (required with --notary-api-key)"; }
+  [[ -n "${NOTARY_ISSUER}" ]] || { usage; die "Missing --notary-issuer (required with --notary-api-key)"; }
+  [[ -e "${NOTARY_API_KEY}" ]] || die "API key file not found: ${NOTARY_API_KEY}"
+else
+  { usage; die "Missing notarization authentication: either --notary-profile or --notary-api-key + --notary-key-id + --notary-issuer"; }
+fi
 
 require_cmd /usr/bin/xcodebuild
 require_cmd /usr/bin/ditto
 require_cmd /usr/sbin/spctl
+require_cmd /usr/bin/hdiutil
 
 ROOT="$(repo_root)"
 PROJECT="${ROOT}/AerialFlow/AerialFlow.xcodeproj"
@@ -108,7 +134,16 @@ rm -f "${ZIP_PATH}"
 /usr/bin/ditto -c -k --keepParent "${STAGED_APP}" "${ZIP_PATH}"
 
 log "Notarizing zip + stapling app…"
-${SCRIPT_DIR}/notarize.sh --profile "${NOTARY_PROFILE}" --file "${ZIP_PATH}" --staple "${STAGED_APP}"
+if [[ -n "${NOTARY_PROFILE}" ]]; then
+  ${SCRIPT_DIR}/notarize.sh --profile "${NOTARY_PROFILE}" --file "${ZIP_PATH}" --staple "${STAGED_APP}"
+else
+  ${SCRIPT_DIR}/notarize.sh \
+    --api-key "${NOTARY_API_KEY}" \
+    --key-id "${NOTARY_KEY_ID}" \
+    --issuer "${NOTARY_ISSUER}" \
+    --file "${ZIP_PATH}" \
+    --staple "${STAGED_APP}"
+fi
 
 DMG_NAME="${APP_NAME}-${VERSION}(${BUILD})-universal.dmg"
 DMG_PATH="${DIST}/${DMG_NAME}"
@@ -117,10 +152,45 @@ log "Creating DMG…"
 ${SCRIPT_DIR}/make_dmg.sh --app "${STAGED_APP}" --out "${DMG_PATH}" --volname "${APP_NAME}"
 
 log "Notarizing DMG + stapling DMG…"
-${SCRIPT_DIR}/notarize.sh --profile "${NOTARY_PROFILE}" --file "${DMG_PATH}" --staple "${DMG_PATH}"
+if [[ -n "${NOTARY_PROFILE}" ]]; then
+  ${SCRIPT_DIR}/notarize.sh --profile "${NOTARY_PROFILE}" --file "${DMG_PATH}" --staple "${DMG_PATH}"
+else
+  ${SCRIPT_DIR}/notarize.sh \
+    --api-key "${NOTARY_API_KEY}" \
+    --key-id "${NOTARY_KEY_ID}" \
+    --issuer "${NOTARY_ISSUER}" \
+    --file "${DMG_PATH}" \
+    --staple "${DMG_PATH}"
+fi
 
 log "Final verification (spctl)…"
-/usr/sbin/spctl -a -vv --type open "${DMG_PATH}"
+#
+# `spctl` assessment needs a concrete executable target (e.g. an .app). Assessing a `.dmg`
+# directly often fails with `source=Insufficient Context`, even when notarization/stapling
+# succeeded. Mount the DMG and assess the app inside.
+#
+DMG_MOUNT="${TMP_BASE}/dmg-mount"
+rm -rf "${DMG_MOUNT}"
+mkdir -p "${DMG_MOUNT}"
+
+cleanup_dmg_mount() {
+  if [[ -n "${dmg_dev:-}" ]]; then
+    /usr/bin/hdiutil detach "${dmg_dev}" -force >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_dmg_mount EXIT
+
+attach_out="$(/usr/bin/hdiutil attach -nobrowse -readonly -mountpoint "${DMG_MOUNT}" "${DMG_PATH}")"
+dmg_dev="$(echo "${attach_out}" | /usr/bin/awk '/^\/dev\// {print $1; exit}')"
+[[ -n "${dmg_dev}" ]] || die "Could not determine DMG device from hdiutil output."
+
+DMG_APP_PATH="${DMG_MOUNT}/${APP_NAME}.app"
+[[ -d "${DMG_APP_PATH}" ]] || die "App not found inside DMG at: ${DMG_APP_PATH}"
+/usr/sbin/spctl -a -vv --type execute "${DMG_APP_PATH}"
+
+# Detach immediately; keep the EXIT trap only for error paths.
+cleanup_dmg_mount
+trap - EXIT
 
 if [[ -n "${SPARKLE_TAG}" ]]; then
   log "Generating Sparkle appcast (tag=${SPARKLE_TAG}, repo=${SPARKLE_REPO})…"

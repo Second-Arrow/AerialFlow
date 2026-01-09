@@ -18,17 +18,19 @@ Commands:
   build local [--dmg] [--install-to <dir>]
       Builds an unsigned universal Release .app into dist/unsigned/.
 
-  release production --notary-profile <profile>
+  release production (--notary-profile <profile> | --notary-api-key <key.p8> --notary-key-id <id> --notary-issuer <uuid>)
       [--identity "<Developer ID Application: ...>"]
       [--repo <owner/repo>] [--tap <owner/repo>]
       [--tag <tag> | --tag-prefix <pfx>] [--skip-sparkle] [--dry-run]
       Builds + signs + notarizes + generates Sparkle appcast assets,
       publishes a GitHub Release via gh, and updates the Homebrew tap cask.
+      Use either keychain profile OR API key for notarization.
 
 Examples:
   bash Scripts/af version set 1.2.3
   bash Scripts/af build local --install-to "/Applications"
   bash Scripts/af release production --notary-profile "AerialFlowNotary"
+  bash Scripts/af release production --notary-api-key ~/AuthKey.p8 --notary-key-id ABC123DEFG --notary-issuer YOUR-ISSUER-UUID
 EOF
 }
 
@@ -288,6 +290,9 @@ cmd_build_local() {
 
 cmd_release_production() {
   local notary_profile=""
+  local notary_api_key=""
+  local notary_key_id=""
+  local notary_issuer=""
   local identity=""
   local repo="second-arrow/AerialFlow"
   local tap="second-arrow/homebrew-tap"
@@ -302,6 +307,12 @@ cmd_release_production() {
     case "$1" in
       --notary-profile)
         notary_profile="${2:-}"; shift 2 ;;
+      --notary-api-key)
+        notary_api_key="${2:-}"; shift 2 ;;
+      --notary-key-id)
+        notary_key_id="${2:-}"; shift 2 ;;
+      --notary-issuer)
+        notary_issuer="${2:-}"; shift 2 ;;
       --identity)
         identity="${2:-}"; shift 2 ;;
       --repo)
@@ -327,7 +338,18 @@ cmd_release_production() {
     esac
   done
 
-  [[ -n "${notary_profile}" ]] || die_usage "Missing --notary-profile"
+  # Validate authentication method
+  if [[ -n "${notary_profile}" ]]; then
+    if [[ -n "${notary_api_key}" || -n "${notary_key_id}" || -n "${notary_issuer}" ]]; then
+      die_usage "Cannot use both --notary-profile and --notary-api-key options. Choose one authentication method."
+    fi
+  elif [[ -n "${notary_api_key}" ]]; then
+    [[ -n "${notary_key_id}" ]] || die_usage "Missing --notary-key-id (required with --notary-api-key)"
+    [[ -n "${notary_issuer}" ]] || die_usage "Missing --notary-issuer (required with --notary-api-key)"
+    [[ -e "${notary_api_key}" ]] || die "API key file not found: ${notary_api_key}"
+  else
+    die_usage "Missing notarization authentication: either --notary-profile or --notary-api-key + --notary-key-id + --notary-issuer"
+  fi
   if [[ "${skip_github}" == "1" && "${skip_brew}" != "1" ]]; then
     die "Refusing: --skip-github cannot be combined with Homebrew updates (cask URLs point to GitHub Releases). Add --skip-brew."
   fi
@@ -388,7 +410,12 @@ cmd_release_production() {
   fi
 
   # Build DMG + Sparkle artifacts.
-  local release_args=(--notary-profile "${notary_profile}" --sparkle-repo "${repo}")
+  local release_args=(--sparkle-repo "${repo}")
+  if [[ -n "${notary_profile}" ]]; then
+    release_args+=(--notary-profile "${notary_profile}")
+  else
+    release_args+=(--notary-api-key "${notary_api_key}" --notary-key-id "${notary_key_id}" --notary-issuer "${notary_issuer}")
+  fi
   if [[ "${skip_sparkle}" != "1" ]]; then
     release_args+=(--sparkle-tag "${tag}")
   fi
