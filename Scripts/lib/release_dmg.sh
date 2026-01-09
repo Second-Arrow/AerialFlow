@@ -22,8 +22,8 @@ Environment:
   SPARKLE_REPO        Optional fallback for --sparkle-repo.
 
 Outputs:
-  dist/AerialFlow-<version>(<build>)-universal.dmg
-  dist/AerialFlow-<version>(<build>)-universal.dmg.sha256.txt
+  dist/AerialFlow-<version>-<build>-universal.dmg
+  dist/AerialFlow-<version>-<build>-universal.dmg.sha256.txt
   dist/sparkle/appcast.xml (if --sparkle-tag is provided)
 EOF
 }
@@ -145,7 +145,7 @@ else
     --staple "${STAGED_APP}"
 fi
 
-DMG_NAME="${APP_NAME}-${VERSION}(${BUILD})-universal.dmg"
+DMG_NAME="${APP_NAME}-${VERSION}-${BUILD}-universal.dmg"
 DMG_PATH="${DIST}/${DMG_NAME}"
 
 log "Creating DMG…"

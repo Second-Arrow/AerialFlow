@@ -266,7 +266,7 @@ cmd_build_local() {
   /usr/bin/ditto "${app_built_path}" "${out_app}"
 
   if [[ "${make_dmg}" == "1" ]]; then
-    local dmg_name="${app_name}-${version}(${build})-unsigned-universal.dmg"
+    local dmg_name="${app_name}-${version}-${build}-unsigned-universal.dmg"
     local dmg_path="${root}/dist/${dmg_name}"
     log "Creating unsigned DMG…"
     "${SCRIPT_DIR}/lib/make_dmg.sh" --app "${out_app}" --out "${dmg_path}" --volname "${app_name}"
@@ -428,7 +428,7 @@ cmd_release_production() {
   fi
   "${SCRIPT_DIR}/lib/release_dmg.sh" "${release_args[@]}"
 
-  local dmg="dist/AerialFlow-${version}(${build})-universal.dmg"
+    local dmg="dist/AerialFlow-${version}-${build}-universal.dmg"
   local dmg_sha="${dmg}.sha256.txt"
   local appcast="dist/sparkle/appcast.xml"
   require_file "${root}/${dmg}"
@@ -444,6 +444,13 @@ cmd_release_production() {
     if ! gh release view "${tag}" --repo "${repo}" >/dev/null 2>&1; then
       log "Creating GitHub release: ${tag}"
       gh release create "${tag}" --repo "${repo}" --title "${tag}" --notes ""
+    fi
+
+    # Preflight: ensure the authenticated `gh` session can access the repo + release via API.
+    # A common cause of `HTTP 404` on uploads is missing token scopes and/or missing SSO authorization
+    # for an org. GitHub will often return 404 instead of 403 in those cases.
+    if ! gh api "repos/${repo}/releases/tags/${tag}" >/dev/null 2>&1; then
+      die "GitHub API access check failed for repo=${repo}, tag=${tag}. If uploads return HTTP 404, run: gh auth status -h github.com, then: gh auth refresh -h github.com -s repo (and authorize SSO for the org if prompted)."
     fi
 
     log "Uploading GitHub release assets…"
@@ -480,7 +487,9 @@ cmd_release_production() {
       "${stable_sha_path}#${stable_sha_name}"
     )
 
-    gh release upload "${tag}" --repo "${repo}" --clobber "${assets[@]}"
+    if ! gh release upload "${tag}" --repo "${repo}" --clobber "${assets[@]}"; then
+      die "Failed to upload GitHub release assets. If you see HTTP 404 from uploads.github.com, it's usually an auth issue: ensure your gh token has 'repo' (or 'public_repo') scope, and that SSO is authorized for the org (gh auth refresh -h github.com -s repo)."
+    fi
   fi
 
   if [[ "${skip_brew}" != "1" ]]; then
