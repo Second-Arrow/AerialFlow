@@ -37,6 +37,27 @@ private struct FakeStoreEditor: WallpaperApplying {
         _ = backupRetentionCount
         return .init(updatedProviderNodeCount: 0, backupURL: URL(fileURLWithPath: "/tmp/Index.plist.bak"))
     }
+
+    func inspectAerialConfiguration(indexPlistURL: URL) throws -> WallpaperStoreEditor.AerialConfigurationStatus {
+        _ = indexPlistURL
+        return .init(
+            totalProviderNodes: 0,
+            desktopProviderNodes: 0,
+            idleProviderNodes: 0,
+            issues: [.indexPlistMissing]
+        )
+    }
+
+    func repairAerialConfiguration(
+        desiredAssetID: String,
+        indexPlistURL: URL,
+        backupRetentionCount: Int
+    ) throws -> WallpaperStoreEditor.AerialConfigurationRepairReport {
+        _ = desiredAssetID
+        _ = indexPlistURL
+        _ = backupRetentionCount
+        return .init(didUpsertProviderNodes: false, updatedProviderNodeCount: 0, backupURL: URL(fileURLWithPath: "/tmp/Index.plist.bak"))
+    }
 }
 
 private struct FakeReloader: WallpaperReloading {
@@ -230,7 +251,7 @@ struct AppStateTests {
         let videoDir = URL(fileURLWithPath: "/test/videos")
         try fileSystem.createDirectory(at: videoDir)
 
-        let result = AppState.calculateStorageUsed(fileSystem: fileSystem, videoDirectory: videoDir)
+        let result = DiagnosticsSnapshotLoader.calculateStorageUsed(fileSystem: fileSystem, videoDirectory: videoDir)
         #expect(result == 0)
     }
 
@@ -252,7 +273,7 @@ struct AppStateTests {
         try fileSystem.writeData(data2, to: file2, options: [])
         try fileSystem.writeData(data3, to: file3, options: [])
 
-        let result = AppState.calculateStorageUsed(fileSystem: fileSystem, videoDirectory: videoDir)
+        let result = DiagnosticsSnapshotLoader.calculateStorageUsed(fileSystem: fileSystem, videoDirectory: videoDir)
         #expect(result == 6000) // 1000 + 2000 + 3000
     }
 
@@ -261,7 +282,7 @@ struct AppStateTests {
         let videoDir = URL(fileURLWithPath: "/test/videos")
         // Don't create the directory
 
-        let result = AppState.calculateStorageUsed(fileSystem: fileSystem, videoDirectory: videoDir)
+        let result = DiagnosticsSnapshotLoader.calculateStorageUsed(fileSystem: fileSystem, videoDirectory: videoDir)
         #expect(result == nil)
     }
 
@@ -280,7 +301,7 @@ struct AppStateTests {
         try fileSystem.writeData(movData, to: movFile, options: [])
         try fileSystem.writeData(partData, to: partFile, options: [])
 
-        let result = AppState.calculateStorageUsed(fileSystem: fileSystem, videoDirectory: videoDir)
+        let result = DiagnosticsSnapshotLoader.calculateStorageUsed(fileSystem: fileSystem, videoDirectory: videoDir)
         // Should only count the .mov file, not the .part file
         #expect(result == 1000)
     }
@@ -300,7 +321,7 @@ struct AppStateTests {
         try fileSystem.writeData(movData, to: movFile, options: [])
         try fileSystem.writeData(hiddenData, to: hiddenMovFile, options: [])
 
-        let result = AppState.calculateStorageUsed(fileSystem: fileSystem, videoDirectory: videoDir)
+        let result = DiagnosticsSnapshotLoader.calculateStorageUsed(fileSystem: fileSystem, videoDirectory: videoDir)
         // Should only count the non-hidden .mov file
         #expect(result == 1000)
     }

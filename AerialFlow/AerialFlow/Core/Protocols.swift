@@ -47,6 +47,14 @@ protocol AssetDownloadEnsuring: Sendable {
 /// Protocol for applying an asset ID to the wallpaper store.
 protocol WallpaperApplying: Sendable {
     func applyAerialAssetID(_ assetID: String, indexPlistURL: URL, backupRetentionCount: Int) throws -> WallpaperStoreEditor.ApplyResult
+
+    func inspectAerialConfiguration(indexPlistURL: URL) throws -> WallpaperStoreEditor.AerialConfigurationStatus
+
+    func repairAerialConfiguration(
+        desiredAssetID: String,
+        indexPlistURL: URL,
+        backupRetentionCount: Int
+    ) throws -> WallpaperStoreEditor.AerialConfigurationRepairReport
 }
 
 /// Protocol for reloading wallpaper pipelines.

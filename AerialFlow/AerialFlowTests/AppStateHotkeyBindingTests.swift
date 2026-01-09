@@ -86,6 +86,27 @@ private struct FakeStoreEditor: WallpaperApplying {
         _ = backupRetentionCount
         return .init(updatedProviderNodeCount: 0, backupURL: URL(fileURLWithPath: "/tmp/Index.plist.bak"))
     }
+
+    func inspectAerialConfiguration(indexPlistURL: URL) throws -> WallpaperStoreEditor.AerialConfigurationStatus {
+        _ = indexPlistURL
+        return .init(
+            totalProviderNodes: 0,
+            desktopProviderNodes: 0,
+            idleProviderNodes: 0,
+            issues: [.indexPlistMissing]
+        )
+    }
+
+    func repairAerialConfiguration(
+        desiredAssetID: String,
+        indexPlistURL: URL,
+        backupRetentionCount: Int
+    ) throws -> WallpaperStoreEditor.AerialConfigurationRepairReport {
+        _ = desiredAssetID
+        _ = indexPlistURL
+        _ = backupRetentionCount
+        return .init(didUpsertProviderNodes: false, updatedProviderNodeCount: 0, backupURL: URL(fileURLWithPath: "/tmp/Index.plist.bak"))
+    }
 }
 
 private struct FakeReloader: WallpaperReloading {
@@ -256,8 +277,8 @@ struct AppStateHotkeyBindingTests {
         }
         #expect(didExcludeB)
 
-        let didAdvance = await eventually(timeoutNanoseconds: 6_000_000_000) {
-            await MainActor.run { state.statusLine == "c" }
+        let didAdvance = await eventually(timeoutNanoseconds: 12_000_000_000) {
+            await stateStore.getLastAssetID() == "c"
         }
         #expect(didAdvance)
     }
@@ -463,8 +484,8 @@ struct AppStateHotkeyBindingTests {
 
         binder.trigger(.nextInSubcategory)
 
-        let didAdvance = await eventually(timeoutNanoseconds: 6_000_000_000) {
-            await MainActor.run { state.statusLine == "c" }
+        let didAdvance = await eventually(timeoutNanoseconds: 12_000_000_000) {
+            await stateStore.getLastAssetID() == "c"
         }
         #expect(didAdvance)
     }

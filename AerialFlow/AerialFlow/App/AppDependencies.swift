@@ -116,4 +116,16 @@ struct AppDependencies {
     }
 }
 
+extension AppDependencies {
+    /// Convenience wrapper to avoid threading yet another stored dependency through every initializer callsite.
+    var catalogPresentation: CatalogPresentationService {
+        CatalogPresentationService(catalog: catalog, resolver: categoryResolver)
+    }
+
+    /// Convenience wrapper to avoid threading yet another stored dependency through every initializer callsite.
+    var launchAtLoginCoordinator: LaunchAtLoginCoordinator {
+        LaunchAtLoginCoordinator(manager: launchAtLoginManager)
+    }
+}
+
 

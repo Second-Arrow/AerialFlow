@@ -62,10 +62,17 @@ struct WallpaperStoreEditor: Sendable {
     private let logger = Logger(subsystem: Constants.loggerSubsystem, category: "WallpaperStoreEditor")
     private let fileSystem: FileSystem
     private let now: @Sendable () -> Date
+    private let configPlist: WallpaperStoreConfigurationPlist
+    private let backupRetention: WallpaperStoreBackupRetention
 
     init(fileSystem: FileSystem, now: @escaping @Sendable () -> Date = Date.init) {
         self.fileSystem = fileSystem
         self.now = now
+        self.configPlist = WallpaperStoreConfigurationPlist(
+            configDecodeFailed: { EditorError.configDecodeFailed(underlying: $0) },
+            configEncodeFailed: { EditorError.configEncodeFailed(underlying: $0) }
+        )
+        self.backupRetention = WallpaperStoreBackupRetention(fileSystem: fileSystem, logger: logger)
     }
 
     func applyAerialAssetID(
@@ -87,7 +94,13 @@ struct WallpaperStoreEditor: Sendable {
         }
 
         let provider = "com.apple.wallpaper.choice.aerials"
-        let edited = try edit(root: rootAny, provider: provider, newAssetID: assetID)
+        let plistEditor = WallpaperStorePlistEditor(
+            now: now,
+            rewriteConfiguration: { configData, newAssetID in
+                try configPlist.rewriteConfiguration(configData, assetID: newAssetID)
+            }
+        )
+        let edited = try plistEditor.edit(root: rootAny, provider: provider, newAssetID: assetID)
         guard edited.updatedCount > 0 else {
             throw EditorError.noProviderNodesFound(provider: provider)
         }
@@ -99,10 +112,10 @@ struct WallpaperStoreEditor: Sendable {
             throw EditorError.encodeFailed(underlying: error)
         }
 
-        let backupURL = backupURL(for: indexPlistURL, date: now())
+        let backupURL = backupRetention.backupURL(for: indexPlistURL, date: now())
         try fileSystem.writeData(original, to: backupURL, options: [.atomic])
         try fileSystem.writeData(updatedData, to: indexPlistURL, options: [.atomic])
-        pruneBackupsBestEffort(indexPlistURL: indexPlistURL, keepingMostRecent: backupRetentionCount)
+        backupRetention.pruneBackupsBestEffort(indexPlistURL: indexPlistURL, keepingMostRecent: backupRetentionCount)
 
         logger.debug("Applied assetID=\(assetID, privacy: .public) updatedNodes=\(edited.updatedCount)")
         return ApplyResult(updatedProviderNodeCount: edited.updatedCount, backupURL: backupURL)
@@ -129,14 +142,17 @@ struct WallpaperStoreEditor: Sendable {
         }
 
         let provider = "com.apple.wallpaper.choice.aerials"
-        let stats = scanForProviderNodes(rootAny, provider: provider, path: [])
+        let plistEditor = WallpaperStorePlistEditor(
+            now: now,
+            rewriteConfiguration: { configData, newAssetID in
+                try configPlist.rewriteConfiguration(configData, assetID: newAssetID)
+            }
+        )
+        let stats = plistEditor.scanForProviderNodes(root: rootAny, provider: provider)
 
         var issues: Set<AerialConfigurationIssue> = []
         if stats.total == 0 {
             issues.insert(.noAerialProviderNodes)
-        } else {
-            if stats.desktop == 0 { issues.insert(.missingDesktopNode) }
-            if stats.idle == 0 { issues.insert(.missingIdleNode) }
         }
 
         return AerialConfigurationStatus(
@@ -194,10 +210,10 @@ struct WallpaperStoreEditor: Sendable {
             throw EditorError.encodeFailed(underlying: error)
         }
 
-        let backupURL = backupURL(for: indexPlistURL, date: now())
+        let backupURL = backupRetention.backupURL(for: indexPlistURL, date: now())
         try fileSystem.writeData(original, to: backupURL, options: [.atomic])
         try fileSystem.writeData(updatedData, to: indexPlistURL, options: [.atomic])
-        pruneBackupsBestEffort(indexPlistURL: indexPlistURL, keepingMostRecent: backupRetentionCount)
+        backupRetention.pruneBackupsBestEffort(indexPlistURL: indexPlistURL, keepingMostRecent: backupRetentionCount)
 
         logger.debug("Upserted provider nodes updatedCount=\(upsert.updatedCount)")
         return AerialConfigurationRepairReport(
@@ -215,162 +231,8 @@ struct WallpaperStoreEditor: Sendable {
             .appendingPathComponent("Store", isDirectory: true)
             .appendingPathComponent("Index.plist", isDirectory: false)
     }
-
-    private struct EditResult {
-        let root: Any
-        let updatedCount: Int
-    }
-
-    private struct ProviderNodeStats {
-        var total: Int = 0
-        var desktop: Int = 0
-        var idle: Int = 0
-    }
-
-    private func edit(root: Any, provider: String, newAssetID: String) throws -> EditResult {
-        let (node, updatedCount, _) = try editNode(root, path: [], provider: provider, newAssetID: newAssetID)
-        return EditResult(root: node, updatedCount: updatedCount)
-    }
-
-    /// Returns: (editedNode, updatedProviderCount, didUpdateProviderInSubtree)
-    private func editNode(
-        _ node: Any,
-        path: [String],
-        provider: String,
-        newAssetID: String
-    ) throws -> (Any, Int, Bool) {
-        if var dict = node as? [String: Any] {
-            var updatedCount = 0
-            var didUpdateInSubtree = false
-
-            // Recurse children first (so parent can decide to "touch" timestamps if any update happened).
-            for (key, value) in dict {
-                if value is [String: Any] || value is [Any] {
-                    let (editedChild, childCount, childDidUpdate) = try editNode(
-                        value,
-                        path: path + [key],
-                        provider: provider,
-                        newAssetID: newAssetID
-                    )
-                    dict[key] = editedChild
-                    updatedCount += childCount
-                    didUpdateInSubtree = didUpdateInSubtree || childDidUpdate
-                }
-            }
-
-            // Then process this node.
-            if let providerValue = dict["Provider"] as? String, providerValue == provider,
-               let configData = dict["Configuration"] as? Data {
-                let newConfigData = try rewriteConfiguration(configData, assetID: newAssetID)
-                dict["Configuration"] = newConfigData
-                updatedCount += 1
-                didUpdateInSubtree = true
-            }
-
-            if didUpdateInSubtree, shouldTouchTimestamps(path: path) {
-                if dict["LastSet"] != nil { dict["LastSet"] = now() }
-                if dict["LastUse"] != nil { dict["LastUse"] = now() }
-            }
-
-            return (dict, updatedCount, didUpdateInSubtree)
-        }
-
-        if let array = node as? [Any] {
-            var editedArray: [Any] = []
-            editedArray.reserveCapacity(array.count)
-
-            var updatedCount = 0
-            var didUpdateInSubtree = false
-
-            for value in array {
-                if value is [String: Any] || value is [Any] {
-                    let (editedChild, childCount, childDidUpdate) = try editNode(
-                        value,
-                        path: path,
-                        provider: provider,
-                        newAssetID: newAssetID
-                    )
-                    editedArray.append(editedChild)
-                    updatedCount += childCount
-                    didUpdateInSubtree = didUpdateInSubtree || childDidUpdate
-                } else {
-                    editedArray.append(value)
-                }
-            }
-            return (editedArray, updatedCount, didUpdateInSubtree)
-        }
-
-        return (node, 0, false)
-    }
-
-    private func rewriteConfiguration(_ data: Data, assetID: String) throws -> Data {
-        let cfgAny: Any
-        do {
-            cfgAny = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
-        } catch {
-            throw EditorError.configDecodeFailed(underlying: error)
-        }
-
-        guard var cfg = cfgAny as? [String: Any] else {
-            throw EditorError.configDecodeFailed(underlying: NSError(domain: "AerialFlow", code: 1))
-        }
-        cfg["assetID"] = assetID
-
-        do {
-            return try PropertyListSerialization.data(fromPropertyList: cfg, format: .binary, options: 0)
-        } catch {
-            throw EditorError.configEncodeFailed(underlying: error)
-        }
-    }
-
     private func makeConfigurationData(assetID: String) throws -> Data {
-        do {
-            return try PropertyListSerialization.data(
-                fromPropertyList: ["assetID": assetID],
-                format: .binary,
-                options: 0
-            )
-        } catch {
-            throw EditorError.configEncodeFailed(underlying: error)
-        }
-    }
-
-    private func scanForProviderNodes(_ node: Any, provider: String, path: [String]) -> ProviderNodeStats {
-        if let dict = node as? [String: Any] {
-            var stats = ProviderNodeStats()
-
-            if let providerValue = dict["Provider"] as? String, providerValue == provider,
-               dict["Configuration"] is Data {
-                stats.total += 1
-                if path.contains("Desktop") { stats.desktop += 1 }
-                if path.contains("Idle") { stats.idle += 1 }
-            }
-
-            for (key, value) in dict {
-                if value is [String: Any] || value is [Any] {
-                    let child = scanForProviderNodes(value, provider: provider, path: path + [key])
-                    stats.total += child.total
-                    stats.desktop += child.desktop
-                    stats.idle += child.idle
-                }
-            }
-            return stats
-        }
-
-        if let array = node as? [Any] {
-            var stats = ProviderNodeStats()
-            for value in array {
-                if value is [String: Any] || value is [Any] {
-                    let child = scanForProviderNodes(value, provider: provider, path: path)
-                    stats.total += child.total
-                    stats.desktop += child.desktop
-                    stats.idle += child.idle
-                }
-            }
-            return stats
-        }
-
-        return ProviderNodeStats()
+        try configPlist.makeConfigurationData(assetID: assetID)
     }
 
     private struct UpsertResult {
@@ -437,63 +299,6 @@ struct WallpaperStoreEditor: Sendable {
         return 1
     }
 
-    private func shouldTouchTimestamps(path: [String]) -> Bool {
-        path.contains("Desktop") || path.contains("Idle")
-    }
-
-    private func backupURL(for indexPlistURL: URL, date: Date) -> URL {
-        let stamp = Self.timestampString(for: date)
-        let dir = indexPlistURL.deletingLastPathComponent()
-        let name = "\(indexPlistURL.lastPathComponent).\(stamp).bak"
-        return dir.appendingPathComponent(name)
-    }
-
-    private func pruneBackupsBestEffort(indexPlistURL: URL, keepingMostRecent count: Int) {
-        let keepCount = max(1, count)
-        let dir = indexPlistURL.deletingLastPathComponent()
-        let prefix = "\(indexPlistURL.lastPathComponent)."
-
-        let files: [URL]
-        do {
-            files = try fileSystem.listFiles(in: dir)
-        } catch {
-            logger.debug("Backup retention: could not list backups in \(dir.path, privacy: .public)")
-            return
-        }
-
-        let backups = files
-            .filter { url in
-                let name = url.lastPathComponent
-                return name.hasPrefix(prefix) && name.hasSuffix(".bak")
-            }
-            // Name sorts by timestamp (yyyyMMdd-HHmmss), so descending keeps newest first.
-            .sorted { $0.lastPathComponent > $1.lastPathComponent }
-
-        guard backups.count > keepCount else { return }
-
-        for url in backups.dropFirst(keepCount) {
-            do {
-                try fileSystem.removeItem(at: url)
-            } catch {
-                logger.debug("Backup retention: failed to remove \(url.path, privacy: .public): \(String(describing: error), privacy: .public)")
-            }
-        }
-    }
-
-    private static let timestampFormatterLock = NSLock()
-    private static let timestampFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        return formatter
-    }()
-
-    private static func timestampString(for date: Date) -> String {
-        timestampFormatterLock.lock()
-        defer { timestampFormatterLock.unlock() }
-        return timestampFormatter.string(from: date)
-    }
 }
 
 // MARK: - Protocol Conformance

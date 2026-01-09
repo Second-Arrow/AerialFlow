@@ -21,6 +21,7 @@ struct SystemAccessProbeTests {
 
         #expect(report.items.contains(where: { $0.id == "catalog" && $0.state == .error }))
         #expect(report.items.contains(where: { $0.id == "indexPlist" && $0.state != .ok }))
+        #expect(report.items.contains(where: { $0.id == "aerialConfiguration" && $0.state != .ok }))
     }
 
     @Test func testProbe_reportsOk_whenCatalogReadable_andIndexPlistWritable() throws {
@@ -34,7 +35,27 @@ struct SystemAccessProbeTests {
         try fs.createDirectory(at: catalogURL.deletingLastPathComponent())
         try fs.createDirectory(at: indexURL.deletingLastPathComponent())
         try fs.writeData(Data("{}".utf8), to: catalogURL, options: [.atomic])
-        try fs.writeData(Data(), to: indexURL, options: [.atomic])
+        let configData = try PropertyListSerialization.data(
+            fromPropertyList: ["assetID": "A"],
+            format: .binary,
+            options: 0
+        )
+        let root: [String: Any] = [
+            "SystemDefault": [
+                "Linked": [
+                    "Content": [
+                        "Choices": [
+                            [
+                                "Provider": "com.apple.wallpaper.choice.aerials",
+                                "Configuration": configData,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        let indexData = try PropertyListSerialization.data(fromPropertyList: root, format: .binary, options: 0)
+        try fs.writeData(indexData, to: indexURL, options: [.atomic])
 
         let probe = SystemAccessProbe(
             fileSystem: fs,
@@ -48,6 +69,7 @@ struct SystemAccessProbeTests {
 
         #expect(report.items.contains(where: { $0.id == "catalog" && $0.state == .ok }))
         #expect(report.items.contains(where: { $0.id == "indexPlist" && $0.state == .ok }))
+        #expect(report.items.contains(where: { $0.id == "aerialConfiguration" }))
     }
 }
 

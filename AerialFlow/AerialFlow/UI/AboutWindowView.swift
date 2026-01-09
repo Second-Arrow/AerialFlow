@@ -20,7 +20,7 @@ struct AboutWindowView: View {
         .frame(width: 640, height: 320)
         .sheet(isPresented: $isShowingLicense) {
             TextDocumentSheet(
-                title: "MIT License",
+                title: "License",
                 text: BundledText.loadLicenseText()
             )
         }
@@ -70,7 +70,7 @@ struct AboutWindowContentView: View {
             }
 
             HStack(spacing: 12) {
-                Button("MIT License") { isShowingLicense = true }
+                Button("License") { isShowingLicense = true }
                 Button("Acknowledgments") { isShowingAcknowledgments = true }
                 Button("Buy Me a Coffee…") { onDonate() }
             }

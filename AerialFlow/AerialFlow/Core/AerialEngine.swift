@@ -70,11 +70,31 @@ struct AerialEngine: Sendable {
         let url = try urlSelector.pickURL(for: chosen)
         let downloadResult = try await downloader.ensureDownloaded(assetID: chosen.id, url: url, timeout: settings.downloadTimeout)
 
-        let applyResult = try storeEditor.applyAerialAssetID(
-            chosen.id,
-            indexPlistURL: settings.indexPlistURL,
-            backupRetentionCount: settings.backupRetentionCount
-        )
+        let applyResult: WallpaperStoreEditor.ApplyResult
+        do {
+            applyResult = try storeEditor.applyAerialAssetID(
+                chosen.id,
+                indexPlistURL: settings.indexPlistURL,
+                backupRetentionCount: settings.backupRetentionCount
+            )
+        } catch let error as WallpaperStoreEditor.EditorError {
+            switch error {
+            case .noProviderNodesFound:
+                // Best-effort self-healing: attempt to upsert provider nodes (when safe) and retry apply.
+                _ = try storeEditor.repairAerialConfiguration(
+                    desiredAssetID: chosen.id,
+                    indexPlistURL: settings.indexPlistURL,
+                    backupRetentionCount: settings.backupRetentionCount
+                )
+                applyResult = try storeEditor.applyAerialAssetID(
+                    chosen.id,
+                    indexPlistURL: settings.indexPlistURL,
+                    backupRetentionCount: settings.backupRetentionCount
+                )
+            default:
+                throw error
+            }
+        }
         reloader.reloadWallpaperPipelines()
 
         await stateStore.setLastAssetID(chosen.id)
@@ -122,11 +142,30 @@ struct AerialEngine: Sendable {
         let url = try urlSelector.pickURL(for: chosen)
         let downloadResult = try await downloader.ensureDownloaded(assetID: chosen.id, url: url, timeout: settings.downloadTimeout)
 
-        let applyResult = try storeEditor.applyAerialAssetID(
-            chosen.id,
-            indexPlistURL: settings.indexPlistURL,
-            backupRetentionCount: settings.backupRetentionCount
-        )
+        let applyResult: WallpaperStoreEditor.ApplyResult
+        do {
+            applyResult = try storeEditor.applyAerialAssetID(
+                chosen.id,
+                indexPlistURL: settings.indexPlistURL,
+                backupRetentionCount: settings.backupRetentionCount
+            )
+        } catch let error as WallpaperStoreEditor.EditorError {
+            switch error {
+            case .noProviderNodesFound:
+                _ = try storeEditor.repairAerialConfiguration(
+                    desiredAssetID: chosen.id,
+                    indexPlistURL: settings.indexPlistURL,
+                    backupRetentionCount: settings.backupRetentionCount
+                )
+                applyResult = try storeEditor.applyAerialAssetID(
+                    chosen.id,
+                    indexPlistURL: settings.indexPlistURL,
+                    backupRetentionCount: settings.backupRetentionCount
+                )
+            default:
+                throw error
+            }
+        }
         reloader.reloadWallpaperPipelines()
 
         await stateStore.setLastAssetID(chosen.id)

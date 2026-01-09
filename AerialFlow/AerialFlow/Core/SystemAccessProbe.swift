@@ -44,6 +44,7 @@ struct SystemAccessProbe: SystemAccessProbing, Sendable {
 
         items.append(catalogStatusItem())
         items.append(indexPlistStatusItem(indexPlistURL: settings.indexPlistURL))
+        items.append(aerialConfigurationStatusItem(indexPlistURL: settings.indexPlistURL))
         items.append(videosDirectoryStatusItem())
 
         return SystemAccessReport(items: items)
@@ -170,8 +171,56 @@ struct SystemAccessProbe: SystemAccessProbing, Sendable {
         )
     }
 
-    // Note: We intentionally do not probe whether macOS Wallpaper is “configured for Aerials”.
-    // AerialFlow users can manage that manually, and the probe should stick to direct file/system access.
+    private func aerialConfigurationStatusItem(indexPlistURL: URL) -> SystemAccessItem {
+        let title = "Aerials wallpaper configuration"
+
+        let status: WallpaperStoreEditor.AerialConfigurationStatus
+        do {
+            status = try storeEditor.inspectAerialConfiguration(indexPlistURL: indexPlistURL)
+        } catch {
+            return SystemAccessItem(
+                id: "aerialConfiguration",
+                title: title,
+                state: .error,
+                detail: "Could not inspect Index.plist configuration: \(error.localizedDescription)"
+            )
+        }
+
+        if status.issues.isEmpty {
+            return SystemAccessItem(
+                id: "aerialConfiguration",
+                title: title,
+                state: .ok,
+                detail: "Configured for Aerials."
+            )
+        }
+
+        // Prefer actionable guidance over enumerating low-level issues.
+        if status.issues.contains(.indexPlistMissing) {
+            return SystemAccessItem(
+                id: "aerialConfiguration",
+                title: title,
+                state: .warning,
+                detail: "Index.plist is missing, so configuration can’t be inspected yet. Open System Settings > Wallpaper and select Aerials once."
+            )
+        }
+
+        if status.issues.contains(.noAerialProviderNodes) {
+            return SystemAccessItem(
+                id: "aerialConfiguration",
+                title: title,
+                state: .error,
+                detail: "Aerials aren’t configured yet. Open System Settings > Wallpaper and select Aerials, then try again."
+            )
+        }
+
+        return SystemAccessItem(
+            id: "aerialConfiguration",
+            title: title,
+            state: .warning,
+            detail: "Aerials wallpaper configuration is incomplete. Open System Settings > Wallpaper and select an Aerial (Shuffle or a specific Aerial)."
+        )
+    }
 }
 
 

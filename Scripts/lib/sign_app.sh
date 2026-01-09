@@ -65,7 +65,16 @@ log "Verifying codesign…"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
 
 log "Gatekeeper assessment (spctl)…"
-/usr/sbin/spctl -a -vv --type execute "${APP_PATH}"
+#
+# Note:
+# A freshly Developer-ID-signed app will typically be rejected by Gatekeeper until it has been notarized
+# (and ideally stapled). We run this check as a *non-fatal* signal here to aid debugging, but we do not
+# fail the signing step on an "Unnotarized Developer ID" result.
+#
+# The release pipeline performs a strict final Gatekeeper check after notarization/stapling.
+if ! /usr/sbin/spctl -a -vv --type execute "${APP_PATH}"; then
+  log "Note: spctl rejected the app (expected before notarization). Proceeding…"
+fi
 
 log "Universal arch check (lipo)…"
 /usr/bin/lipo -archs "${APP_PATH}/Contents/MacOS/"* | /usr/bin/awk '{print "archs:", $0}'

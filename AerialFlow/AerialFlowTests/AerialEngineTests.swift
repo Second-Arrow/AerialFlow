@@ -110,12 +110,79 @@ struct AerialEngineTests {
             recorder.record("apply")
             return .init(updatedProviderNodeCount: 2, backupURL: URL(fileURLWithPath: "/tmp/Index.plist.bak"))
         }
+
+        func inspectAerialConfiguration(indexPlistURL: URL) throws -> WallpaperStoreEditor.AerialConfigurationStatus {
+            _ = indexPlistURL
+            return .init(
+                totalProviderNodes: 2,
+                desktopProviderNodes: 1,
+                idleProviderNodes: 1,
+                issues: []
+            )
+        }
+
+        func repairAerialConfiguration(
+            desiredAssetID: String,
+            indexPlistURL: URL,
+            backupRetentionCount: Int
+        ) throws -> WallpaperStoreEditor.AerialConfigurationRepairReport {
+            _ = desiredAssetID
+            _ = indexPlistURL
+            _ = backupRetentionCount
+            recorder.record("repair")
+            return .init(didUpsertProviderNodes: false, updatedProviderNodeCount: 0, backupURL: URL(fileURLWithPath: "/tmp/Index.plist.bak"))
+        }
     }
 
     private struct FakeReloader: WallpaperReloading {
         let recorder: Recorder
         func reloadWallpaperPipelines() {
             recorder.record("reload")
+        }
+    }
+
+    private final class RepairingStoreEditor: WallpaperApplying, @unchecked Sendable {
+        private let recorder: Recorder
+        private let lock = NSLock()
+        private var applyCount: Int = 0
+
+        init(recorder: Recorder) {
+            self.recorder = recorder
+        }
+
+        func applyAerialAssetID(_ assetID: String, indexPlistURL: URL, backupRetentionCount: Int) throws -> WallpaperStoreEditor.ApplyResult {
+            _ = assetID
+            _ = indexPlistURL
+            _ = backupRetentionCount
+
+            lock.lock()
+            applyCount += 1
+            let isFirst = (applyCount == 1)
+            lock.unlock()
+
+            recorder.record("apply")
+            if isFirst {
+                throw WallpaperStoreEditor.EditorError.noProviderNodesFound(provider: "com.apple.wallpaper.choice.aerials")
+            }
+
+            return .init(updatedProviderNodeCount: 2, backupURL: URL(fileURLWithPath: "/tmp/Index.plist.bak"))
+        }
+
+        func inspectAerialConfiguration(indexPlistURL: URL) throws -> WallpaperStoreEditor.AerialConfigurationStatus {
+            _ = indexPlistURL
+            return .init(totalProviderNodes: 0, desktopProviderNodes: 0, idleProviderNodes: 0, issues: [.noAerialProviderNodes])
+        }
+
+        func repairAerialConfiguration(
+            desiredAssetID: String,
+            indexPlistURL: URL,
+            backupRetentionCount: Int
+        ) throws -> WallpaperStoreEditor.AerialConfigurationRepairReport {
+            _ = desiredAssetID
+            _ = indexPlistURL
+            _ = backupRetentionCount
+            recorder.record("repair")
+            return .init(didUpsertProviderNodes: true, updatedProviderNodeCount: 2, backupURL: URL(fileURLWithPath: "/tmp/Index.plist.bak"))
         }
     }
 
@@ -253,6 +320,48 @@ struct AerialEngineTests {
 
         let lastAsset = await state.getLastAssetID()
         #expect(lastAsset == "a")
+    }
+
+    @Test func testNext_repairsThenApplies_whenProviderNodesMissing() async throws {
+        let recorder = Recorder()
+        let state = FakeEngineStateStore(lastAssetID: "b")
+
+        let assets = [
+            AerialAsset(id: "a", categories: [], urlVariants: ["url-4K": URL(string: "https://example.com/a.mov")!]),
+            AerialAsset(id: "b", categories: [], urlVariants: ["url-4K": URL(string: "https://example.com/b.mov")!]),
+        ]
+        let catalogSnapshot = AerialCatalog.Snapshot(assets: assets, categories: [], fileURL: URL(fileURLWithPath: "/dev/null"), fileModificationDate: nil)
+
+        let engine = AerialEngine(
+            catalog: FakeCatalog(snapshot: catalogSnapshot),
+            picker: FakePicker(recorder: recorder),
+            urlSelector: FakeURLSelector(recorder: recorder, url: URL(string: "https://example.com/a.mov")!),
+            downloader: FakeDownloader(recorder: recorder),
+            brightnessStore: NoopBrightnessStore(),
+            storeEditor: RepairingStoreEditor(recorder: recorder),
+            reloader: FakeReloader(recorder: recorder),
+            stateStore: state,
+            now: { Date(timeIntervalSince1970: 1) }
+        )
+
+        _ = try await engine.next(
+            settings: Settings(
+                excludedCategoryIDs: [],
+                excludedSubcategoryIDs: [],
+                excludedAssetIDs: [],
+                randomMode: false,
+                downloadTimeout: 5,
+                indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist"),
+                backupRetentionCount: 10,
+                isLightSensitiveFilteringEnabled: false,
+                allowedLightStartMinutes: 10 * 60,
+                allowedLightEndMinutes: 18 * 60,
+                lightSensitivity: 0.5
+            )
+        )
+
+        let events = recorder.snapshot()
+        #expect(events == ["pick", "url", "download", "apply", "repair", "apply", "reload"])
     }
 
     @Test func testNext_propagatesCatalogLoadFailure() async {

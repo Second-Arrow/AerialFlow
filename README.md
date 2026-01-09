@@ -1,24 +1,26 @@
 # AerialFlow
 
-A small macOS utility that fixes the Aerials screensaver bug where backgrounds don't automatically switch to the next Aerial video. AerialFlow automatically downloads Aerial videos and provides hotkey support for quick access to screensaver controls.
+A small macOS utility that fixes the Aerials screensaver bug where backgrounds don't automatically switch to the next Aerial video. AerialFlow downloads Aerial videos on demand and provides hotkey support for quick access to wallpaper and screensaver controls.
 
 ## Features
 
 - 🔄 **Automatic Background Rotation**: Fixes the macOS Aerials screensaver bug that prevents automatic switching between Aerial videos
 - 💤 **Sleep-Aware (Energy Efficient)**: When macOS sleeps or all screens turn off, AerialFlow hibernates its scheduler (no periodic timer wakeups) and resumes intelligently when you wake your Mac
-- 📥 **Automatic Downloads**: Automatically downloads Aerial videos in 4K SDR 240fps quality
+- 📥 **On-demand Downloads**: Downloads the needed Aerial video automatically (uses Apple’s 4K SDR 240fps variant when available in the system catalog)
 - 🌗 **Light-Sensitive Filtering**: Optionally filter to darker Aerials outside a configurable “light allowed” time window, based on each Aerial’s preview-image brightness
 - ⌨️ **Hotkey Support**: Quick keyboard shortcuts for:
   - **Next Aerial**: Switch to the next Aerial background immediately
+  - **Next In Subcategory**: Advance within the current Aerial’s primary subcategory
+  - **Exclude current Aerial + Next**: Exclude the current Aerial and immediately switch to the next eligible one
+  - **Pause / Continue**: Toggle scheduled rotation on/off
   - **Go To Screensaver**: Launch the screensaver
-  - **Lock**: Lock your Mac screen
 - 🔧 **Lightweight**: Minimal resource usage, runs quietly in the background
 
 ## Requirements
 
-- macOS 15.0 (Sequoia) or later
-- Xcode 15.0 or later (for building from source)
-- Swift 5.0 or later
+- macOS 15.6 (Sequoia) or later
+- Xcode 16 or later (for building from source)
+- Swift toolchain bundled with Xcode
 
 ## Installation
 
@@ -54,45 +56,51 @@ A small macOS utility that fixes the Aerials screensaver bug where backgrounds d
 1. Launch AerialFlow from Applications
 2. The app will appear in your menu bar
 3. Click the menu bar icon to access settings
-4. AerialFlow will begin downloading videos in the background
+4. Use **Next Aerial** (or scheduled rotation) to apply and download Aerials as needed
 
 ### Menu Bar Controls
 
 - Click the menu bar icon to:
-  - View current status
-  - Access settings
-  - Manually trigger next Aerial
-  - Open diagnostics view
+  - View current status (and errors, if any)
+  - Manually trigger **Next Aerial**
+  - Open **Setup…** (onboarding / permissions guidance)
+  - **Pause / Continue** scheduled rotation
+  - Open **Settings** / **About**
 
 ### Hotkeys
 
-Configure hotkeys in System Settings > Keyboard > Keyboard Shortcuts > App Shortcuts:
+Configure hotkeys in **AerialFlow → Settings → Hotkeys**:
 
 - **Next Aerial**: Switch to the next Aerial background
+- **Next In Subcategory**: Advance within the current Aerial’s primary subcategory
+- **Exclude current Aerial + Next**: Exclude current and advance
+- **Pause / Continue**: Toggle scheduled rotation
 - **Go To Screensaver**: Launch screensaver immediately
-- **Lock**: Lock your Mac
 
-Default hotkeys can be customized in the app settings.
+Hotkeys are global. If they don’t work, macOS may require **Input Monitoring** and/or **Accessibility** permissions for AerialFlow.
 
 ### Settings
 
 Access settings via the menu bar icon:
 
-- **Rotation Interval**: Set how often backgrounds should rotate (if applicable)
+- **Rotation**: Enable/disable scheduled rotation, choose interval, and optional random mode
 - **After sleep / display off**: Choose how AerialFlow resumes rotation after your Mac wakes (keep original time left, rotate immediately, or restart the timer)
 - **Light-sensitive filtering**: Enable filtering based on Aerial brightness, configure the allowed-light time range (shown in your system’s 12/24-hour format), and set the sensitivity threshold (values below 0.15 may be too strict)
-- **Hotkey Configuration**: Customize keyboard shortcuts
-- **Download Preferences**: Manage download behavior and storage
+- **Exclusions**: Exclude categories/subcategories/individual Aerials from selection
+- **Storage**: Optionally remove excluded downloaded `.mov` files on a schedule (or run cleanup manually)
+- **Hotkeys**: Set global shortcuts
+- **Advanced**: Configure download timeout and (optionally) choose/reset the `Index.plist` wallpaper store path
 
 ## How It Works
 
 AerialFlow works by:
 
-1. **Catalog Management**: Maintains a local catalog of available Aerial videos
-2. **Automatic Downloads**: Downloads videos in 4K SDR 240fps quality when available
-3. **Rotation Control**: Manages the macOS wallpaper rotation to ensure Aerials switch properly
-4. **Sleep-Aware Scheduling**: Hibernates rotation while your Mac sleeps or screens are off, then resumes based on your chosen behavior
-5. **System Integration**: Integrates with macOS wallpaper and screensaver systems
+1. **Catalog Management**: Reads Apple’s Aerial catalog (`entries.json`) as provided by macOS (`idleassetsd`)
+2. **Asset Selection**: Picks the next eligible Aerial (respecting exclusions and optional light-sensitive filtering)
+3. **On-demand Downloads**: Ensures the chosen Aerial video exists on disk (downloads it if missing)
+4. **Wallpaper Application**: Updates the macOS wallpaper store (`Index.plist`) and reloads wallpaper pipelines
+5. **Sleep-Aware Scheduling**: Hibernates rotation while your Mac sleeps or screens are off, then resumes based on your chosen behavior
+6. **System Integration**: Integrates with macOS wallpaper and screensaver systems (and supports auto-updates via Sparkle)
 
 ## Project Structure
 
@@ -236,11 +244,13 @@ This project follows Swift best practices:
 
 - Check your internet connection
 - Verify you have sufficient disk space
-- Check System Settings > Privacy & Security for network permissions
+- In **Settings → Tools → Diagnostics**, confirm the Aerial catalog (`entries.json`) is readable and the video storage directory is accessible
+- Try increasing **Settings → Advanced → Download timeout**
 
 ### Hotkeys Not Working
 
-- Ensure AerialFlow has Accessibility permissions:
+- Ensure AerialFlow has **Input Monitoring** and/or **Accessibility** permissions:
+  - System Settings > Privacy & Security > Input Monitoring
   - System Settings > Privacy & Security > Accessibility
   - Add AerialFlow if not present
 - Verify hotkey conflicts with other applications

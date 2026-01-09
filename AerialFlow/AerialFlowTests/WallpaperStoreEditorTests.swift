@@ -255,6 +255,92 @@ struct WallpaperStoreEditorTests {
         let backups = files.filter { $0.lastPathComponent.hasPrefix("Index.plist.") && $0.lastPathComponent.hasSuffix(".bak") }
         #expect(backups.count == 10)
     }
+
+    @Test func testApply_throwsConfigDecodeFailed_whenConfigurationPlistIsNotDictionary() throws {
+        let fs = InMemoryFileSystem()
+        let editor = WallpaperStoreEditor(fileSystem: fs)
+
+        let storeDir = URL(fileURLWithPath: "/Users/test/Library/Application Support/com.apple.wallpaper/Store", isDirectory: true)
+        try fs.createDirectory(at: storeDir)
+        let indexURL = storeDir.appendingPathComponent("Index.plist")
+
+        // This is a valid plist, but not a dictionary shape.
+        let nonDictionaryConfig = try PropertyListSerialization.data(
+            fromPropertyList: ["assetID"],
+            format: .binary,
+            options: 0
+        )
+
+        let root: [String: Any] = [
+            "Desktop": [
+                "Choice": [
+                    "Provider": "com.apple.wallpaper.choice.aerials",
+                    "Configuration": nonDictionaryConfig,
+                ],
+            ],
+        ]
+
+        let originalData = try PropertyListSerialization.data(fromPropertyList: root, format: .binary, options: 0)
+        try fs.writeData(originalData, to: indexURL, options: [.atomic])
+
+        do {
+            _ = try editor.applyAerialAssetID("NEW", indexPlistURL: indexURL, backupRetentionCount: 10)
+            #expect(Bool(false))
+        } catch let error as WallpaperStoreEditor.EditorError {
+            switch error {
+            case .configDecodeFailed:
+                #expect(Bool(true))
+            default:
+                #expect(Bool(false))
+            }
+        } catch {
+            #expect(Bool(false))
+        }
+    }
+
+    @Test func testApply_throwsNoProviderNodesFound_whenNoProviderNodesExist() throws {
+        let fs = InMemoryFileSystem()
+        let editor = WallpaperStoreEditor(fileSystem: fs)
+
+        let storeDir = URL(fileURLWithPath: "/Users/test/Library/Application Support/com.apple.wallpaper/Store", isDirectory: true)
+        try fs.createDirectory(at: storeDir)
+        let indexURL = storeDir.appendingPathComponent("Index.plist")
+
+        // Containers exist, but no matching provider nodes.
+        let root: [String: Any] = [
+            "Desktop": [
+                "Choice": [
+                    "Provider": "some.other.provider",
+                    "Configuration": Data("not-a-plist".utf8),
+                ],
+            ],
+            "Idle": [
+                "Nodes": [
+                    [
+                        "Provider": "some.other.provider",
+                        "Configuration": Data("not-a-plist".utf8),
+                    ]
+                ]
+            ],
+        ]
+
+        let originalData = try PropertyListSerialization.data(fromPropertyList: root, format: .binary, options: 0)
+        try fs.writeData(originalData, to: indexURL, options: [.atomic])
+
+        do {
+            _ = try editor.applyAerialAssetID("NEW", indexPlistURL: indexURL, backupRetentionCount: 10)
+            #expect(Bool(false))
+        } catch let error as WallpaperStoreEditor.EditorError {
+            switch error {
+            case .noProviderNodesFound:
+                #expect(Bool(true))
+            default:
+                #expect(Bool(false))
+            }
+        } catch {
+            #expect(Bool(false))
+        }
+    }
 }
 
 

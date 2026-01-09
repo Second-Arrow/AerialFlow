@@ -7,6 +7,8 @@ protocol SystemSettingsOpening: Sendable {
     @discardableResult func openLoginItemsSettings() -> Bool
     @discardableResult func openInputMonitoringSettings() -> Bool
     @discardableResult func openAccessibilitySettings() -> Bool
+    @discardableResult func openWallpaperSettings() -> Bool
+    @discardableResult func openScreenSaverSettings() -> Bool
 }
 
 struct SystemSettingsOpener: SystemSettingsOpening, Sendable {
@@ -45,6 +47,26 @@ struct SystemSettingsOpener: SystemSettingsOpening, Sendable {
         openFirstMatch(urlStrings: [
             "x-apple.systempreferences:com.apple.PrivacySecurity-Settings.extension?Privacy_Accessibility",
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        ])
+    }
+
+    @discardableResult
+    func openWallpaperSettings() -> Bool {
+        openFirstMatch(urlStrings: [
+            // macOS 13+ System Settings (best-effort; exact ID may vary by OS version)
+            "x-apple.systempreferences:com.apple.Wallpaper-Settings.extension",
+            // Legacy System Preferences (Desktop & Screen Saver)
+            "x-apple.systempreferences:com.apple.preference.desktopscreeneffect",
+        ])
+    }
+
+    @discardableResult
+    func openScreenSaverSettings() -> Bool {
+        openFirstMatch(urlStrings: [
+            // macOS 13+ System Settings (best-effort; exact ID may vary by OS version)
+            "x-apple.systempreferences:com.apple.ScreenSaver-Settings.extension",
+            // Legacy System Preferences (Desktop & Screen Saver)
+            "x-apple.systempreferences:com.apple.preference.desktopscreeneffect",
         ])
     }
 

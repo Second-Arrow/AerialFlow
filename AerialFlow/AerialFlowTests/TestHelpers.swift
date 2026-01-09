@@ -229,6 +229,8 @@ struct NoopSystemSettingsOpener: SystemSettingsOpening {
     func openLoginItemsSettings() -> Bool { false }
     func openInputMonitoringSettings() -> Bool { false }
     func openAccessibilitySettings() -> Bool { false }
+    func openWallpaperSettings() -> Bool { false }
+    func openScreenSaverSettings() -> Bool { false }
 }
 
 // MARK: - InMemoryFileSystem

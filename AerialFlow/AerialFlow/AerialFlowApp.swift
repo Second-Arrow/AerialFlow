@@ -79,10 +79,6 @@ private struct MenuBarContents: View {
         }
         .disabled(appState.isBusy)
 
-        Button("Setup…") {
-            openWindow(id: "onboarding")
-        }
-
         Button(appState.isPaused ? "Continue" : "Pause") {
             appState.setRotationEnabled(appState.isPaused)
         }
@@ -91,6 +87,10 @@ private struct MenuBarContents: View {
 
         SettingsLink {
             Text("Settings")
+        }
+        
+        Button("Setup…") {
+            openWindow(id: "onboarding")
         }
 
         Button("About") {
@@ -127,11 +127,13 @@ private struct SupportCommands: Commands {
 
 @main
 struct AerialFlowApp: App {
+    private let dependencies: AppDependencies
     @StateObject private var appState: AppState
 
     init() {
-        let dependencies = AppDependencies.live()
-        _appState = StateObject(wrappedValue: AppState(dependencies: dependencies))
+        let deps = AppDependencies.live()
+        self.dependencies = deps
+        _appState = StateObject(wrappedValue: AppState(dependencies: deps))
     }
 
     var body: some Scene {
@@ -145,7 +147,12 @@ struct AerialFlowApp: App {
         }
 
         Settings {
-            SettingsView()
+            SettingsView(
+                catalog: dependencies.catalog,
+                catalogPresentation: dependencies.catalogPresentation,
+                stateStore: dependencies.stateStore,
+                systemSettingsOpener: dependencies.systemSettingsOpener
+            )
                 .environmentObject(appState)
                 .environmentObject(appState.updaterViewModel)
         }
