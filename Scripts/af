@@ -449,10 +449,14 @@ cmd_release_production() {
     fi
     # Sparkle delta files are optional.
     shopt -s nullglob
-    local -a deltas=()
+    local deltas=()
     deltas+=("${root}"/dist/sparkle/*.delta)
     shopt -u nullglob
-    assets+=("${deltas[@]}")
+    # Under `set -u`, guard against any shell/version oddities where an empty array
+    # might still be treated as "unset".
+    if [[ ${deltas+x} ]]; then
+      assets+=("${deltas[@]}")
+    fi
 
     gh release upload "${tag}" --repo "${repo}" --clobber "${assets[@]}"
   fi
