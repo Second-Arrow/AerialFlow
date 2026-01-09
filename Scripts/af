@@ -338,6 +338,10 @@ cmd_release_production() {
     esac
   done
 
+  # Normalize to lowercase for API endpoints (GitHub treats owner/repo as case-insensitive,
+  # but some endpoints like uploads can return 404 when casing doesn't match).
+  repo="$(/usr/bin/printf '%s' "${repo}" | /usr/bin/tr '[:upper:]' '[:lower:]')"
+
   # Validate authentication method
   if [[ -n "${notary_profile}" ]]; then
     if [[ -n "${notary_api_key}" || -n "${notary_key_id}" || -n "${notary_issuer}" ]]; then
