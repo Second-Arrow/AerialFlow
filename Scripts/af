@@ -458,6 +458,24 @@ cmd_release_production() {
       assets+=("${deltas[@]}")
     fi
 
+    # Also upload a stable-named DMG for website links:
+    #   https://github.com/<owner>/<repo>/releases/latest/download/AerialFlow.dmg
+    #
+    # Keep the versioned DMG too (used by Homebrew + Sparkle enclosure URLs).
+    local stable_dmg_name="AerialFlow.dmg"
+    local stable_sha_name="AerialFlow.dmg.sha256.txt"
+    local stable_sha_path="${root}/.tmp/release/${stable_sha_name}"
+    mkdir -p "$(dirname -- "${stable_sha_path}")"
+    local stable_sha256
+    stable_sha256="$(/usr/bin/awk '{print $1; exit}' "${root}/${dmg_sha}")"
+    [[ -n "${stable_sha256}" ]] || die "Could not parse sha256 from: ${dmg_sha}"
+    printf "%s  %s\n" "${stable_sha256}" "${stable_dmg_name}" > "${stable_sha_path}"
+
+    assets+=(
+      "${root}/${dmg}#${stable_dmg_name}"
+      "${stable_sha_path}#${stable_sha_name}"
+    )
+
     gh release upload "${tag}" --repo "${repo}" --clobber "${assets[@]}"
   fi
 
