@@ -21,7 +21,7 @@ Commands:
   release production (--notary-profile <profile> | --notary-api-key <key.p8> --notary-key-id <id> --notary-issuer <uuid>)
       [--identity "<Developer ID Application: ...>"]
       [--repo <owner/repo>] [--tap <owner/repo>]
-      [--tag <tag> | --tag-prefix <pfx>] [--skip-sparkle] [--dry-run]
+      [--tag <tag> | --tag-prefix <pfx>] [--skip-sparkle] [--no-stable-dmg] [--dry-run]
       Builds + signs + notarizes + generates Sparkle appcast assets,
       publishes a GitHub Release via gh, and updates the Homebrew tap cask.
       Use either keychain profile OR API key for notarization.
@@ -302,6 +302,7 @@ cmd_release_production() {
   local skip_github="0"
   local skip_brew="0"
   local skip_sparkle="0"
+  local upload_stable_dmg="1"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -331,6 +332,8 @@ cmd_release_production() {
         skip_brew="1"; shift ;;
       --skip-sparkle)
         skip_sparkle="1"; shift ;;
+      --no-stable-dmg)
+        upload_stable_dmg="0"; shift ;;
       -h|--help)
         usage; exit 0 ;;
       *)
@@ -454,41 +457,48 @@ cmd_release_production() {
     fi
 
     log "Uploading GitHub release assets…"
-    local assets=("${root}/${dmg}" "${root}/${dmg_sha}")
+    # Upload one-by-one to avoid any CLI parsing edge cases (and to isolate failures).
+    upload_one() {
+      local path="$1"
+      if ! gh release upload "${tag}" --repo "${repo}" --clobber "${path}"; then
+        die "Failed to upload GitHub release asset: ${path}"
+      fi
+    }
+
+    upload_one "${root}/${dmg}"
+    upload_one "${root}/${dmg_sha}"
     if [[ "${skip_sparkle}" != "1" ]]; then
-      assets+=("${root}/${appcast}")
+      upload_one "${root}/${appcast}"
     fi
+
     # Sparkle delta files are optional.
     shopt -s nullglob
-    local deltas=()
-    deltas+=("${root}"/dist/sparkle/*.delta)
+    local deltas=("${root}"/dist/sparkle/*.delta)
     shopt -u nullglob
-    # Under `set -u`, guard against any shell/version oddities where an empty array
-    # might still be treated as "unset".
-    if [[ ${deltas+x} ]]; then
-      assets+=("${deltas[@]}")
+    if (( ${#deltas[@]} > 0 )); then
+      for f in "${deltas[@]}"; do
+        upload_one "${f}"
+      done
     fi
 
-    # Also upload a stable-named DMG for website links:
-    #   https://github.com/<owner>/<repo>/releases/latest/download/AerialFlow.dmg
-    #
-    # Keep the versioned DMG too (used by Homebrew + Sparkle enclosure URLs).
-    local stable_dmg_name="AerialFlow.dmg"
-    local stable_sha_name="AerialFlow.dmg.sha256.txt"
-    local stable_sha_path="${root}/.tmp/release/${stable_sha_name}"
-    mkdir -p "$(dirname -- "${stable_sha_path}")"
-    local stable_sha256
-    stable_sha256="$(/usr/bin/awk '{print $1; exit}' "${root}/${dmg_sha}")"
-    [[ -n "${stable_sha256}" ]] || die "Could not parse sha256 from: ${dmg_sha}"
-    printf "%s  %s\n" "${stable_sha256}" "${stable_dmg_name}" > "${stable_sha_path}"
+    if [[ "${upload_stable_dmg}" == "1" ]]; then
+      # Also upload a stable-named DMG for website links:
+      #   https://github.com/<owner>/<repo>/releases/latest/download/AerialFlow.dmg
+      #
+      # Keep the versioned DMG too (used by Homebrew + Sparkle enclosure URLs).
+      local stable_dmg_name="AerialFlow.dmg"
+      local stable_sha_name="AerialFlow.dmg.sha256.txt"
+      local stable_sha_path="${root}/.tmp/release/${stable_sha_name}"
+      mkdir -p "$(dirname -- "${stable_sha_path}")"
+      local stable_sha256
+      stable_sha256="$(/usr/bin/awk '{print $1; exit}' "${root}/${dmg_sha}")"
+      [[ -n "${stable_sha256}" ]] || die "Could not parse sha256 from: ${dmg_sha}"
+      printf "%s  %s\n" "${stable_sha256}" "${stable_dmg_name}" > "${stable_sha_path}"
 
-    assets+=(
-      "${root}/${dmg}#${stable_dmg_name}"
-      "${stable_sha_path}#${stable_sha_name}"
-    )
-
-    if ! gh release upload "${tag}" --repo "${repo}" --clobber "${assets[@]}"; then
-      die "Failed to upload GitHub release assets. If you see HTTP 404 from uploads.github.com, it's usually an auth issue: ensure your gh token has 'repo' (or 'public_repo') scope, and that SSO is authorized for the org (gh auth refresh -h github.com -s repo)."
+      if ! gh release upload "${tag}" --repo "${repo}" --clobber "${root}/${dmg}#${stable_dmg_name}"; then
+        die "Failed to upload stable DMG alias asset: ${stable_dmg_name}"
+      fi
+      upload_one "${stable_sha_path}#${stable_sha_name}"
     fi
   fi
 
