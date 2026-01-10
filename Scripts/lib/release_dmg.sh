@@ -76,6 +76,7 @@ require_cmd /usr/bin/xcodebuild
 require_cmd /usr/bin/ditto
 require_cmd /usr/sbin/spctl
 require_cmd /usr/bin/hdiutil
+require_cmd /usr/bin/shasum
 
 ROOT="$(repo_root)"
 PROJECT="${ROOT}/AerialFlow/AerialFlow.xcodeproj"
@@ -162,6 +163,10 @@ else
     --file "${DMG_PATH}" \
     --staple "${DMG_PATH}"
 fi
+
+# Important: stapling modifies the DMG bytes, so the checksum must be computed post-staple.
+log "Writing checksum (post-staple)…"
+/usr/bin/shasum -a 256 "${DMG_PATH}" > "${DMG_PATH}.sha256.txt"
 
 log "Final verification (spctl)…"
 #
