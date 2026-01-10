@@ -488,17 +488,28 @@ cmd_release_production() {
       # Keep the versioned DMG too (used by Homebrew + Sparkle enclosure URLs).
       local stable_dmg_name="AerialFlow.dmg"
       local stable_sha_name="AerialFlow.dmg.sha256.txt"
-      local stable_sha_path="${root}/.tmp/release/${stable_sha_name}"
-      mkdir -p "$(dirname -- "${stable_sha_path}")"
+      local stable_dir="${root}/.tmp/release/stable-assets"
+      local stable_dmg_path="${stable_dir}/${stable_dmg_name}"
+      local stable_sha_path="${stable_dir}/${stable_sha_name}"
+      mkdir -p "${stable_dir}"
+
+      # Create a real file with the stable filename, because GitHub download URLs use the
+      # asset "name" (filename), not the display "label".
+      #
+      # `gh release upload`'s `path#...` syntax sets a label, it does NOT rename the asset.
+      if /bin/ln -f "${root}/${dmg}" "${stable_dmg_path}" 2>/dev/null; then
+        : # hardlink created
+      else
+        /bin/cp -f "${root}/${dmg}" "${stable_dmg_path}"
+      fi
+
       local stable_sha256
       stable_sha256="$(/usr/bin/awk '{print $1; exit}' "${root}/${dmg_sha}")"
       [[ -n "${stable_sha256}" ]] || die "Could not parse sha256 from: ${dmg_sha}"
       printf "%s  %s\n" "${stable_sha256}" "${stable_dmg_name}" > "${stable_sha_path}"
 
-      if ! gh release upload "${tag}" --repo "${repo}" --clobber "${root}/${dmg}#${stable_dmg_name}"; then
-        die "Failed to upload stable DMG alias asset: ${stable_dmg_name}"
-      fi
-      upload_one "${stable_sha_path}#${stable_sha_name}"
+      upload_one "${stable_dmg_path}"
+      upload_one "${stable_sha_path}"
     fi
   fi
 
