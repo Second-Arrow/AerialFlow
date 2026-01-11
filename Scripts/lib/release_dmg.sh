@@ -122,6 +122,9 @@ STAGED_APP="${TMP_BASE}/${APP_NAME}.app"
 log "Staging app…"
 cp -R "${APP_BUILT_PATH}" "${STAGED_APP}"
 
+log "Patching Info.plist (Sparkle feed URL)…"
+/usr/bin/env bash "${SCRIPT_DIR}/patch_info_plist.sh" --app "${STAGED_APP}"
+
 log "Signing app…"
 if [[ -n "${IDENTITY}" ]]; then
   "${SCRIPT_DIR}/sign_app.sh" "${STAGED_APP}" --identity "${IDENTITY}"

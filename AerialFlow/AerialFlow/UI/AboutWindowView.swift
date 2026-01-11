@@ -30,6 +30,7 @@ struct AboutWindowView: View {
                 text: BundledText.load("Acknowledgments", fileExtension: "txt")
             )
         }
+        .background(WindowFrontingView())
     }
 }
 

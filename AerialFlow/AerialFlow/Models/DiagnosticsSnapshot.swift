@@ -10,6 +10,7 @@ struct DiagnosticsSnapshot: Sendable, Equatable {
     let backupCount: Int
     let recentBackupFileNames: [String]
     let storageUsedBytes: Int64?
+    let indexPlistShapeDescription: String?
 
     private static let displayDateFormatterLock = NSLock()
     private static let displayDateFormatter: DateFormatter = {

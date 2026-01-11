@@ -130,7 +130,8 @@ struct AppUserActionsTests {
         let excludedCleaner = ExcludedAerialsCleaner(
             fileSystem: fileSystem,
             directoryDetector: ActiveVideoDirectoryDetector(runner: runner),
-            catalog: catalog
+            catalog: catalog,
+            features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
         )
         let excludedCleanupCoordinator = ExcludedAerialsCleanupCoordinator(
             stateStore: FakeExcludedAerialsCleanupStateStore(),
@@ -225,7 +226,8 @@ struct AppUserActionsTests {
         let excludedCleaner = ExcludedAerialsCleaner(
             fileSystem: fileSystem,
             directoryDetector: ActiveVideoDirectoryDetector(runner: runner),
-            catalog: catalog
+            catalog: catalog,
+            features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
         )
         let excludedCleanupCoordinator = ExcludedAerialsCleanupCoordinator(
             stateStore: FakeExcludedAerialsCleanupStateStore(),

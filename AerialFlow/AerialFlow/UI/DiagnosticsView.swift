@@ -24,6 +24,7 @@ struct DiagnosticsView: View {
                         .font(.headline)
 
                     keyValueRow("Index.plist", value: appState.settings.indexPlistURL.path)
+                    keyValueRow("Index.plist shape", value: snapshot?.indexPlistShapeDescription)
                     keyValueRow("Last applied asset ID", value: snapshot?.lastAssetID)
                     keyValueRow("Last change", value: snapshot?.lastChangeDescription)
                     keyValueRow("Next update", value: snapshot?.nextScheduledChangeDescription)

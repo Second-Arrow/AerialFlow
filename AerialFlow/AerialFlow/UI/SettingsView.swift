@@ -58,6 +58,7 @@ struct SettingsView: View {
                                 Section(section.title) {
                                     ForEach(section.destinations, id: \.self) { destination in
                                         Label(destination.title, systemImage: destination.systemImage)
+                                            .labelStyle(.titleAndIcon)
                                             .tag(destination)
                                     }
                                 }
@@ -87,7 +88,9 @@ struct SettingsView: View {
                     HStack(alignment: .firstTextBaseline) {
                         SettingsFooterView(
                             statusLine: appState.statusLine,
-                            hasError: appState.lastErrorMessage != nil
+                            hasError: appState.lastErrorMessage != nil,
+                            isBusy: appState.isBusy,
+                            onNextAerial: { await appState.nextAerial() }
                         )
 
 //                        Button("Support Development…") {
@@ -109,6 +112,7 @@ struct SettingsView: View {
                 .padding(.bottom, 16)
             }
         }
+        .background(WindowFrontingView())
         .frame(width: 760, height: 620)
         .onAppear {
             localSelectedDestination = appState.selectedSettingsDestination

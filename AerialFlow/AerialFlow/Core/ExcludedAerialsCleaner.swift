@@ -22,18 +22,28 @@ struct ExcludedAerialsCleaner: Sendable {
     private let fileSystem: any FileSystem
     private let directoryDetector: ActiveVideoDirectoryDetector
     private let catalog: any AerialCataloging
+    private let features: AerialFlowFeatures
 
     init(
         fileSystem: any FileSystem,
         directoryDetector: ActiveVideoDirectoryDetector,
-        catalog: any AerialCataloging
+        catalog: any AerialCataloging,
+        features: AerialFlowFeatures
     ) {
         self.fileSystem = fileSystem
         self.directoryDetector = directoryDetector
         self.catalog = catalog
+        self.features = features
     }
 
     func cleanExcludedMovFiles(settings: AppSettings) async throws -> ExcludedAerialsCleanupReport {
+        if features.movDownloadMode == .relyOnSystemCache_macos15 {
+            // On macOS 15 the active Aerial video directory is system-managed (idleassetsd cache).
+            // Do not attempt to remove system cache files.
+            logger.info("Excluded Aerial cleanup skipped: system-managed cache on macOS 15.")
+            return ExcludedAerialsCleanupReport(removedFiles: [], failures: [])
+        }
+
         let snapshot = try await catalog.loadSnapshot()
         let excludedMain = settings.excludedCategoryIDs
         let excludedSub = settings.excludedSubcategoryIDs

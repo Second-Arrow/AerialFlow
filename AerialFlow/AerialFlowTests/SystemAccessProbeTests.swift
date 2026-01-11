@@ -8,11 +8,13 @@ struct SystemAccessProbeTests {
         let runner = FakeCommandRunner()
         let detector = ActiveVideoDirectoryDetector(runner: runner, homeDirectoryURL: URL(fileURLWithPath: "/home"))
         let editor = WallpaperStoreEditor(fileSystem: fs)
+        let features = AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
 
         let probe = SystemAccessProbe(
             fileSystem: fs,
             directoryDetector: detector,
             storeEditor: editor,
+            features: features,
             catalogURL: URL(fileURLWithPath: "/missing/entries.json")
         )
 
@@ -29,6 +31,7 @@ struct SystemAccessProbeTests {
         let runner = FakeCommandRunner()
         let detector = ActiveVideoDirectoryDetector(runner: runner, homeDirectoryURL: URL(fileURLWithPath: "/home"))
         let editor = WallpaperStoreEditor(fileSystem: fs)
+        let features = AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
 
         let catalogURL = URL(fileURLWithPath: "/catalog/entries.json")
         let indexURL = URL(fileURLWithPath: "/wallpaper/Index.plist")
@@ -61,6 +64,7 @@ struct SystemAccessProbeTests {
             fileSystem: fs,
             directoryDetector: detector,
             storeEditor: editor,
+            features: features,
             catalogURL: catalogURL
         )
 
@@ -70,6 +74,40 @@ struct SystemAccessProbeTests {
         #expect(report.items.contains(where: { $0.id == "catalog" && $0.state == .ok }))
         #expect(report.items.contains(where: { $0.id == "indexPlist" && $0.state == .ok }))
         #expect(report.items.contains(where: { $0.id == "aerialConfiguration" }))
+    }
+
+    @Test func testProbe_macos15Mode_reportsOk_forIdleassetsdDirectory_evenIfNotWritable() throws {
+        let fs = InMemoryFileSystem()
+        let runner = FakeCommandRunner()
+        runner.stub(
+            Command("/usr/bin/pgrep", ["-x", "-n", "WallpaperVideoExtension"]),
+            result: CommandResult(exitCode: 0, stdout: "567\n", stderr: "")
+        )
+        runner.stub(
+            Command("/usr/sbin/lsof", ["-nP", "-Fn", "-p", "567"]),
+            result: CommandResult(
+                exitCode: 0,
+                stdout: "p567\nn/Library/Application Support/com.apple.idleassetsd/Customer/4KSDR240FPS/ASSET.mov\n",
+                stderr: ""
+            )
+        )
+        let detector = ActiveVideoDirectoryDetector(runner: runner, homeDirectoryURL: URL(fileURLWithPath: "/home"))
+        let editor = WallpaperStoreEditor(fileSystem: fs)
+        let features = AerialFlowFeatures(movDownloadMode: .relyOnSystemCache_macos15)
+
+        let probe = SystemAccessProbe(
+            fileSystem: fs,
+            directoryDetector: detector,
+            storeEditor: editor,
+            features: features,
+            catalogURL: URL(fileURLWithPath: "/missing/entries.json")
+        )
+
+        let report = probe.probe(settings: AppSettings(indexPlistURL: URL(fileURLWithPath: "/missing/Index.plist")))
+        let videos = report.items.first(where: { $0.id == "videos" })
+
+        #expect(videos?.state == .ok)
+        #expect(videos?.detail.contains("idleassetsd") == true)
     }
 }
 

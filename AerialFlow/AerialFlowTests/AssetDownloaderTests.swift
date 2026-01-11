@@ -50,6 +50,7 @@ struct AssetDownloaderTests {
             fileSystem: fs,
             downloader: FakeDownloading(tempURL: fakeTemp),
             directoryDetector: detector,
+            features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory),
             minimumSizeBytes: 5 * 1024 * 1024
         )
 
@@ -80,6 +81,7 @@ struct AssetDownloaderTests {
             fileSystem: fs,
             downloader: FakeDownloading(tempURL: tempFile),
             directoryDetector: detector,
+            features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory),
             minimumSizeBytes: 5 * 1024 * 1024
         )
 
@@ -105,6 +107,7 @@ struct AssetDownloaderTests {
             fileSystem: fs,
             downloader: FailingDownloader(),
             directoryDetector: detector,
+            features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory),
             minimumSizeBytes: 5 * 1024 * 1024
         )
 
@@ -131,6 +134,7 @@ struct AssetDownloaderTests {
             fileSystem: fs,
             downloader: FakeDownloading(tempURL: URL(fileURLWithPath: "/tmp/fake.mov")),
             directoryDetector: detector,
+            features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory),
             minimumSizeBytes: 5 * 1024 * 1024
         )
 
@@ -151,6 +155,137 @@ struct AssetDownloaderTests {
         } catch {
             #expect(Bool(false), "Unexpected error type")
         }
+    }
+
+    @Test func testEnsureDownloaded_macos15Mode_succeedsIfFileAlreadyInDetectedDir() async throws {
+        let fs = InMemoryFileSystem()
+        let runner = FakeCommandRunner()
+        runner.stub(
+            Command("/usr/bin/pgrep", ["-x", "-n", "WallpaperVideoExtension"]),
+            result: CommandResult(exitCode: 0, stdout: "567\n", stderr: "")
+        )
+        runner.stub(
+            Command("/usr/sbin/lsof", ["-nP", "-Fn", "-p", "567"]),
+            result: CommandResult(
+                exitCode: 0,
+                stdout: "p567\nn/Library/Application Support/com.apple.idleassetsd/Customer/4KSDR240FPS/ASSET.mov\n",
+                stderr: ""
+            )
+        )
+        let detector = ActiveVideoDirectoryDetector(runner: runner)
+
+        let dir = URL(fileURLWithPath: "/Library/Application Support/com.apple.idleassetsd/Customer/4KSDR240FPS", isDirectory: true)
+        try fs.createDirectory(at: dir)
+        let destination = dir.appendingPathComponent("ASSET.mov")
+        try fs.writeData(Data(repeating: 0xAB, count: 10), to: destination, options: [])
+
+        let downloader = AssetDownloader(
+            fileSystem: fs,
+            downloader: FakeDownloading(tempURL: URL(fileURLWithPath: "/tmp/fake.mov")),
+            directoryDetector: detector,
+            features: AerialFlowFeatures(movDownloadMode: .relyOnSystemCache_macos15),
+            minimumSizeBytes: 1
+        )
+
+        let result = try await downloader.ensureDownloaded(
+            assetID: "ASSET",
+            url: URL(string: "https://example.com/a.mov"),
+            timeout: 5
+        )
+
+        #expect(result.didDownload == false)
+        #expect(result.destinationURL.path == destination.path)
+    }
+
+    @Test func testEnsureDownloaded_macos15Mode_doesNotWriteToSystemCache_andErrorsIfMissing() async {
+        let fs = InMemoryFileSystem()
+        let runner = FakeCommandRunner()
+        runner.stub(
+            Command("/usr/bin/pgrep", ["-x", "-n", "WallpaperVideoExtension"]),
+            result: CommandResult(exitCode: 0, stdout: "567\n", stderr: "")
+        )
+        runner.stub(
+            Command("/usr/sbin/lsof", ["-nP", "-Fn", "-p", "567"]),
+            result: CommandResult(
+                exitCode: 0,
+                stdout: "p567\nn/Library/Application Support/com.apple.idleassetsd/Customer/4KSDR240FPS/OTHER.mov\n",
+                stderr: ""
+            )
+        )
+        let detector = ActiveVideoDirectoryDetector(runner: runner)
+
+        let dir = URL(fileURLWithPath: "/Library/Application Support/com.apple.idleassetsd/Customer/4KSDR240FPS", isDirectory: true)
+        try? fs.createDirectory(at: dir)
+
+        let downloader = AssetDownloader(
+            fileSystem: fs,
+            downloader: FakeDownloading(tempURL: URL(fileURLWithPath: "/tmp/fake.mov")),
+            directoryDetector: detector,
+            features: AerialFlowFeatures(movDownloadMode: .relyOnSystemCache_macos15),
+            minimumSizeBytes: 1
+        )
+
+        do {
+            _ = try await downloader.ensureDownloaded(
+                assetID: "ASSET",
+                url: URL(string: "https://example.com/a.mov"),
+                timeout: 0
+            )
+            #expect(Bool(false), "Expected system cache missing error")
+        } catch let error as AssetDownloader.DownloadError {
+            switch error {
+            case .systemCacheAssetNotFound(let assetID, let expectedDirectory):
+                #expect(assetID == "ASSET")
+                #expect(expectedDirectory.path == dir.path)
+                let part = dir.appendingPathComponent(".ASSET.mov.part")
+                #expect(fs.fileExists(at: part) == false)
+            default:
+                #expect(Bool(false), "Unexpected error: \(String(describing: error))")
+            }
+        } catch {
+            #expect(Bool(false), "Unexpected error type")
+        }
+    }
+
+    @Test func testEnsureDownloaded_macos15Mode_missingFile_withTimeout_doesNotBlockOrThrow() async throws {
+        let fs = InMemoryFileSystem()
+        let runner = FakeCommandRunner()
+        runner.stub(
+            Command("/usr/bin/pgrep", ["-x", "-n", "WallpaperVideoExtension"]),
+            result: CommandResult(exitCode: 0, stdout: "567\n", stderr: "")
+        )
+        runner.stub(
+            Command("/usr/sbin/lsof", ["-nP", "-Fn", "-p", "567"]),
+            result: CommandResult(
+                exitCode: 0,
+                stdout: "p567\nn/Library/Application Support/com.apple.idleassetsd/Customer/4KSDR240FPS/OTHER.mov\n",
+                stderr: ""
+            )
+        )
+        let detector = ActiveVideoDirectoryDetector(runner: runner)
+
+        let dir = URL(fileURLWithPath: "/Library/Application Support/com.apple.idleassetsd/Customer/4KSDR240FPS", isDirectory: true)
+        try? fs.createDirectory(at: dir)
+
+        let downloader = AssetDownloader(
+            fileSystem: fs,
+            downloader: FakeDownloading(tempURL: URL(fileURLWithPath: "/tmp/fake.mov")),
+            directoryDetector: detector,
+            features: AerialFlowFeatures(movDownloadMode: .relyOnSystemCache_macos15),
+            minimumSizeBytes: 1
+        )
+
+        let result = try await downloader.ensureDownloaded(
+            assetID: "ASSET",
+            url: URL(string: "https://example.com/a.mov"),
+            timeout: 5
+        )
+
+        #expect(result.didDownload == false)
+        #expect(result.destinationURL.path == dir.appendingPathComponent("ASSET.mov").path)
+        // Still should not write partials to the system cache.
+        let part = dir.appendingPathComponent(".ASSET.mov.part")
+        #expect(fs.fileExists(at: part) == false)
     }
 }
 

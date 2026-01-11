@@ -10,6 +10,7 @@ struct AppDependencies {
     let stateStore: any AerialEngineStateStore
     let excludedAerialsCleanupStateStore: any ExcludedAerialsCleanupStateStoring
     let directoryDetector: ActiveVideoDirectoryDetector
+    let features: AerialFlowFeatures
     let downloader: any AssetDownloadEnsuring
     let brightnessStore: any AerialBrightnessStoring
     let storeEditor: WallpaperStoreEditor
@@ -35,6 +36,7 @@ struct AppDependencies {
     ) -> AppDependencies {
         let fileSystem: any FileSystem = DefaultFileSystem()
         let runner: any CommandRunner = ProcessCommandRunner()
+        let features = AerialFlowFeatures.live()
         let powerEventObserver: any PowerEventObserving = NSWorkspacePowerEventObserver()
         let catalog: any AerialCataloging = AerialCatalog(fileSystem: fileSystem)
         let categoryResolver = CategoryResolver(fileSystem: fileSystem)
@@ -45,7 +47,8 @@ struct AppDependencies {
         let downloader: any AssetDownloadEnsuring = AssetDownloader(
             fileSystem: fileSystem,
             downloader: urlSessionDownloader,
-            directoryDetector: directoryDetector
+            directoryDetector: directoryDetector,
+            features: features
         )
         let brightnessStore: any AerialBrightnessStoring = AerialBrightnessStore(
             userDefaults: userDefaults,
@@ -57,7 +60,8 @@ struct AppDependencies {
         let excludedAerialsCleaner = ExcludedAerialsCleaner(
             fileSystem: fileSystem,
             directoryDetector: directoryDetector,
-            catalog: catalog
+            catalog: catalog,
+            features: features
         )
         let screensaverLauncher = screensaverLauncher ?? ScreensaverLauncher(runner: runner)
         let hotkeyBinder = hotkeyBinder ?? KeyboardShortcutsHotkeyBinder()
@@ -72,7 +76,8 @@ struct AppDependencies {
         let systemAccessProbe: any SystemAccessProbing = SystemAccessProbe(
             fileSystem: fileSystem,
             directoryDetector: directoryDetector,
-            storeEditor: storeEditor
+            storeEditor: storeEditor,
+            features: features
         )
         let notificationPermissionService: any NotificationPermissionServicing = NotificationPermissionService()
         let systemSettingsOpener: any SystemSettingsOpening = SystemSettingsOpener()
@@ -85,7 +90,8 @@ struct AppDependencies {
             brightnessStore: brightnessStore,
             storeEditor: storeEditor,
             reloader: reloader,
-            stateStore: stateStore
+            stateStore: stateStore,
+            features: features
         )
 
         return AppDependencies(
@@ -97,6 +103,7 @@ struct AppDependencies {
             stateStore: stateStore,
             excludedAerialsCleanupStateStore: excludedAerialsCleanupStateStore,
             directoryDetector: directoryDetector,
+            features: features,
             downloader: downloader,
             brightnessStore: brightnessStore,
             storeEditor: storeEditor,

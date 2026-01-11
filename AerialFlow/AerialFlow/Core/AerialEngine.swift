@@ -19,6 +19,7 @@ struct AerialEngine: Sendable {
     private let storeEditor: WallpaperApplying
     private let reloader: WallpaperReloading
     private let stateStore: any AerialEngineStateStore
+    private let features: AerialFlowFeatures
     private let now: @Sendable () -> Date
 
     init(
@@ -30,6 +31,7 @@ struct AerialEngine: Sendable {
         storeEditor: WallpaperApplying,
         reloader: WallpaperReloading,
         stateStore: any AerialEngineStateStore,
+        features: AerialFlowFeatures = AerialFlowFeatures(movDownloadMode: .directToVideoDirectory),
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.catalog = catalog
@@ -40,18 +42,22 @@ struct AerialEngine: Sendable {
         self.storeEditor = storeEditor
         self.reloader = reloader
         self.stateStore = stateStore
+        self.features = features
         self.now = now
     }
 
-    /// Advances to the next Aerial.
-    @discardableResult
-    func next(settings: any AerialEngineSettings) async throws -> Report {
-        let snapshot = try await catalog.loadSnapshot()
+    /// Executes the core pipeline: filter → pick → download → apply → reload.
+    private func executeNextPipeline(
+        assets: [AerialAsset],
+        randomMode: Bool,
+        settings: any AerialEngineSettings,
+        logContext: String
+    ) async throws -> Report {
         let current = await stateStore.getLastAssetID()
 
         let filter = LightSensitiveAssetFilter(now: now)
         let filteredAssets = await filter.filterIfNeeded(
-            assets: snapshot.assets,
+            assets: assets,
             settings: settings,
             brightnessStore: brightnessStore
         )
@@ -63,48 +69,75 @@ struct AerialEngine: Sendable {
             excludedSubcategoryIDs: settings.excludedSubcategoryIDs,
             excludedAssetIDs: settings.excludedAssetIDs,
             currentAssetID: current,
-            randomMode: settings.randomMode,
+            randomMode: randomMode,
             rng: &rng
         )
 
         let url = try urlSelector.pickURL(for: chosen)
-        let downloadResult = try await downloader.ensureDownloaded(assetID: chosen.id, url: url, timeout: settings.downloadTimeout)
 
-        let applyResult: WallpaperStoreEditor.ApplyResult
-        do {
-            applyResult = try storeEditor.applyAerialAssetID(
-                chosen.id,
-                indexPlistURL: settings.indexPlistURL,
-                backupRetentionCount: settings.backupRetentionCount
-            )
-        } catch let error as WallpaperStoreEditor.EditorError {
-            switch error {
-            case .noProviderNodesFound:
-                // Best-effort self-healing: attempt to upsert provider nodes (when safe) and retry apply.
-                _ = try storeEditor.repairAerialConfiguration(
-                    desiredAssetID: chosen.id,
-                    indexPlistURL: settings.indexPlistURL,
-                    backupRetentionCount: settings.backupRetentionCount
-                )
-                applyResult = try storeEditor.applyAerialAssetID(
+        func applyChosenAsset() throws -> WallpaperStoreEditor.ApplyResult {
+            do {
+                return try storeEditor.applyAerialAssetID(
                     chosen.id,
                     indexPlistURL: settings.indexPlistURL,
                     backupRetentionCount: settings.backupRetentionCount
                 )
-            default:
-                throw error
+            } catch let error as WallpaperStoreEditor.EditorError {
+                switch error {
+                case .noProviderNodesFound:
+                    // Best-effort self-healing: attempt to upsert provider nodes (when safe) and retry apply.
+                    _ = try storeEditor.repairAerialConfiguration(
+                        desiredAssetID: chosen.id,
+                        indexPlistURL: settings.indexPlistURL,
+                        backupRetentionCount: settings.backupRetentionCount
+                    )
+                    return try storeEditor.applyAerialAssetID(
+                        chosen.id,
+                        indexPlistURL: settings.indexPlistURL,
+                        backupRetentionCount: settings.backupRetentionCount
+                    )
+                default:
+                    throw error
+                }
             }
         }
-        reloader.reloadWallpaperPipelines()
+
+        let downloadResult: AssetDownloader.Result
+        let applyResult: WallpaperStoreEditor.ApplyResult
+        switch features.movDownloadMode {
+        case .directToVideoDirectory:
+            // Default behavior: ensure `.mov` is present before applying.
+            downloadResult = try await downloader.ensureDownloaded(assetID: chosen.id, url: url, timeout: settings.downloadTimeout)
+            applyResult = try applyChosenAsset()
+            reloader.reloadWallpaperPipelines()
+
+        case .relyOnSystemCache_macos15:
+            // macOS 15: applying + reloading is what prompts macOS to fetch/cache the `.mov`.
+            applyResult = try applyChosenAsset()
+            reloader.reloadWallpaperPipelines()
+            downloadResult = try await downloader.ensureDownloaded(assetID: chosen.id, url: url, timeout: settings.downloadTimeout)
+        }
 
         await stateStore.setLastAssetID(chosen.id)
         await stateStore.setLastChange(now())
 
-        logger.debug("Next applied assetID=\(chosen.id, privacy: .public)")
+        logger.debug("\(logContext) assetID=\(chosen.id, privacy: .public)")
         return Report(
             chosenAssetID: chosen.id,
             didDownload: downloadResult.didDownload,
             updatedProviderNodes: applyResult.updatedProviderNodeCount
+        )
+    }
+
+    /// Advances to the next Aerial.
+    @discardableResult
+    func next(settings: any AerialEngineSettings) async throws -> Report {
+        let snapshot = try await catalog.loadSnapshot()
+        return try await executeNextPipeline(
+            assets: snapshot.assets,
+            randomMode: settings.randomMode,
+            settings: settings,
+            logContext: "Next applied"
         )
     }
 
@@ -114,68 +147,17 @@ struct AerialEngine: Sendable {
     @discardableResult
     func nextInSubcategory(settings: any AerialEngineSettings, subcategoryID: String) async throws -> Report {
         let snapshot = try await catalog.loadSnapshot()
-        let current = await stateStore.getLastAssetID()
 
         let subcategoryAssets = snapshot.assets.filter { asset in
             guard !subcategoryID.isEmpty else { return false }
             return asset.subcategories.contains(subcategoryID)
         }
 
-        let filter = LightSensitiveAssetFilter(now: now)
-        let filteredAssets = await filter.filterIfNeeded(
+        return try await executeNextPipeline(
             assets: subcategoryAssets,
-            settings: settings,
-            brightnessStore: brightnessStore
-        )
-
-        var rng = SystemRandomNumberGenerator()
-        let chosen = try picker.pickNext(
-            assets: filteredAssets,
-            excludedCategoryIDs: settings.excludedCategoryIDs,
-            excludedSubcategoryIDs: settings.excludedSubcategoryIDs,
-            excludedAssetIDs: settings.excludedAssetIDs,
-            currentAssetID: current,
             randomMode: false,
-            rng: &rng
-        )
-
-        let url = try urlSelector.pickURL(for: chosen)
-        let downloadResult = try await downloader.ensureDownloaded(assetID: chosen.id, url: url, timeout: settings.downloadTimeout)
-
-        let applyResult: WallpaperStoreEditor.ApplyResult
-        do {
-            applyResult = try storeEditor.applyAerialAssetID(
-                chosen.id,
-                indexPlistURL: settings.indexPlistURL,
-                backupRetentionCount: settings.backupRetentionCount
-            )
-        } catch let error as WallpaperStoreEditor.EditorError {
-            switch error {
-            case .noProviderNodesFound:
-                _ = try storeEditor.repairAerialConfiguration(
-                    desiredAssetID: chosen.id,
-                    indexPlistURL: settings.indexPlistURL,
-                    backupRetentionCount: settings.backupRetentionCount
-                )
-                applyResult = try storeEditor.applyAerialAssetID(
-                    chosen.id,
-                    indexPlistURL: settings.indexPlistURL,
-                    backupRetentionCount: settings.backupRetentionCount
-                )
-            default:
-                throw error
-            }
-        }
-        reloader.reloadWallpaperPipelines()
-
-        await stateStore.setLastAssetID(chosen.id)
-        await stateStore.setLastChange(now())
-
-        logger.debug("Next-in-subcategory applied assetID=\(chosen.id, privacy: .public) subcategoryID=\(subcategoryID, privacy: .public)")
-        return Report(
-            chosenAssetID: chosen.id,
-            didDownload: downloadResult.didDownload,
-            updatedProviderNodes: applyResult.updatedProviderNodeCount
+            settings: settings,
+            logContext: "Next-in-subcategory applied subcategoryID=\(subcategoryID)"
         )
     }
 }

@@ -247,6 +247,11 @@ This project follows Swift best practices:
 - In **Settings → Tools → Diagnostics**, confirm the Aerial catalog (`entries.json`) is readable and the video storage directory is accessible
 - Try increasing **Settings → Advanced → Download timeout**
 
+### macOS 15.* vs macOS 26.* (Aerial video storage behavior)
+
+- **macOS 15.\***: Aerial videos are managed by macOS and stored in a **system cache** under `/Library/Application Support/com.apple.idleassetsd/Customer/...` (root-owned). AerialFlow **does not download or delete** `.mov` files in this directory; it relies on macOS to fetch/cache videos after AerialFlow updates the wallpaper `assetID`.
+- **macOS 26.\***: AerialFlow uses the existing behavior where the active Aerial videos directory is expected to be **writable** by the current user (and AerialFlow may download/remove `.mov` files there).
+
 ### Hotkeys Not Working
 
 - Ensure AerialFlow has **Input Monitoring** and/or **Accessibility** permissions:

@@ -26,16 +26,19 @@ struct SystemAccessProbe: SystemAccessProbing, Sendable {
     private let directoryDetector: ActiveVideoDirectoryDetector
     private let storeEditor: WallpaperStoreEditor
     private let catalogURL: URL
+    private let features: AerialFlowFeatures
 
     init(
         fileSystem: any FileSystem,
         directoryDetector: ActiveVideoDirectoryDetector,
         storeEditor: WallpaperStoreEditor,
+        features: AerialFlowFeatures,
         catalogURL: URL = URL(fileURLWithPath: "/Library/Application Support/com.apple.idleassetsd/Customer/entries.json")
     ) {
         self.fileSystem = fileSystem
         self.directoryDetector = directoryDetector
         self.storeEditor = storeEditor
+        self.features = features
         self.catalogURL = catalogURL
     }
 
@@ -133,6 +136,16 @@ struct SystemAccessProbe: SystemAccessProbing, Sendable {
         }
 
         let dir = detection.videoDirectory
+
+        if features.movDownloadMode == .relyOnSystemCache_macos15,
+           dir.path.hasPrefix("/Library/Application Support/com.apple.idleassetsd/Customer/") {
+            return SystemAccessItem(
+                id: "videos",
+                title: title,
+                state: .ok,
+                detail: "\(dir.path) (system-managed on macOS 15; not writable by design)"
+            )
+        }
 
         // If the directory doesn't exist yet, we rely on writability of the parent to create it later.
         if !fileSystem.fileExists(at: dir) {

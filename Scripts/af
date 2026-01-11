@@ -265,6 +265,9 @@ cmd_build_local() {
   log "Copying app to: ${out_app}"
   /usr/bin/ditto "${app_built_path}" "${out_app}"
 
+  log "Patching Info.plist (Sparkle feed URL)…"
+  /usr/bin/env bash "${SCRIPT_DIR}/lib/patch_info_plist.sh" --app "${out_app}"
+
   if [[ "${make_dmg}" == "1" ]]; then
     local dmg_name="${app_name}-${version}-${build}-unsigned-universal.dmg"
     local dmg_path="${root}/dist/${dmg_name}"

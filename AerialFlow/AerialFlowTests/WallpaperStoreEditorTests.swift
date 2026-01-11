@@ -175,6 +175,128 @@ struct WallpaperStoreEditorTests {
         #expect(idleCfg["assetID"] as? String == "NEW")
     }
 
+    @Test func testRepairConfiguration_upsertsProviderNodes_whenSafeContainersExist_macos15IndividualShape() throws {
+        let fs = InMemoryFileSystem()
+        let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let editor = WallpaperStoreEditor(fileSystem: fs, now: { fixedDate })
+
+        let storeDir = URL(fileURLWithPath: "/Users/test/Library/Application Support/com.apple.wallpaper/Store", isDirectory: true)
+        try fs.createDirectory(at: storeDir)
+        let indexURL = storeDir.appendingPathComponent("Index.plist")
+
+        // macOS 15 shape: provider nodes live in Section.Content.Choices[0].
+        // Start with safe containers but no Aerial provider nodes configured.
+        let makeChoice0: [String: Any] = [
+            "SomeOtherKey": "value"
+        ]
+        let makeSection: [String: Any] = [
+            "LastSet": Date(timeIntervalSince1970: 0),
+            "LastUse": Date(timeIntervalSince1970: 0),
+            "Content": [
+                "Choices": [makeChoice0],
+                "Shuffle": "$null",
+            ],
+        ]
+
+        let root: [String: Any] = [
+            "AllSpacesAndDisplays": [
+                "Type": "individual",
+                "Desktop": makeSection,
+                "Idle": makeSection,
+            ],
+            "SystemDefault": [
+                "Type": "individual",
+                "Desktop": makeSection,
+                "Idle": makeSection,
+            ],
+        ]
+
+        let originalData = try PropertyListSerialization.data(fromPropertyList: root, format: .binary, options: 0)
+        try fs.writeData(originalData, to: indexURL, options: [.atomic])
+
+        let repair = try editor.repairAerialConfiguration(desiredAssetID: "NEW", indexPlistURL: indexURL, backupRetentionCount: 10)
+        #expect(repair.didUpsertProviderNodes == true)
+        // Desktop+Idle in 2 containers.
+        #expect(repair.updatedProviderNodeCount == 4)
+        #expect(fs.fileExists(at: repair.backupURL))
+
+        let updatedData = try fs.readData(from: indexURL)
+        let updatedAny = try PropertyListSerialization.propertyList(from: updatedData, options: [], format: nil)
+        let updatedRoot = try #require(updatedAny as? [String: Any])
+
+        func readAssetID(containerKey: String, sectionKey: String) throws -> String {
+            let container = try #require(updatedRoot[containerKey] as? [String: Any])
+            let section = try #require(container[sectionKey] as? [String: Any])
+            #expect(section["LastSet"] as? Date == fixedDate)
+            #expect(section["LastUse"] as? Date == fixedDate)
+            let content = try #require(section["Content"] as? [String: Any])
+            let choices = try #require(content["Choices"] as? [Any])
+            let choice0 = try #require(choices.first as? [String: Any])
+            #expect(choice0["Provider"] as? String == "com.apple.wallpaper.choice.aerials")
+            let cfgData = try #require(choice0["Configuration"] as? Data)
+            let cfgAny = try PropertyListSerialization.propertyList(from: cfgData, options: [], format: nil)
+            let cfg = try #require(cfgAny as? [String: Any])
+            return try #require(cfg["assetID"] as? String)
+        }
+
+        #expect(try readAssetID(containerKey: "AllSpacesAndDisplays", sectionKey: "Desktop") == "NEW")
+        #expect(try readAssetID(containerKey: "AllSpacesAndDisplays", sectionKey: "Idle") == "NEW")
+        #expect(try readAssetID(containerKey: "SystemDefault", sectionKey: "Desktop") == "NEW")
+        #expect(try readAssetID(containerKey: "SystemDefault", sectionKey: "Idle") == "NEW")
+    }
+
+    @Test func testApply_touchesTimestampsForLinkedShape_macos15() throws {
+        let fs = InMemoryFileSystem()
+        let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let editor = WallpaperStoreEditor(fileSystem: fs, now: { fixedDate })
+
+        let storeDir = URL(fileURLWithPath: "/Users/test/Library/Application Support/com.apple.wallpaper/Store", isDirectory: true)
+        try fs.createDirectory(at: storeDir)
+        let indexURL = storeDir.appendingPathComponent("Index.plist")
+
+        func configData(assetID: String) throws -> Data {
+            try PropertyListSerialization.data(
+                fromPropertyList: ["assetID": assetID],
+                format: .binary,
+                options: 0
+            )
+        }
+
+        let linkedSection: [String: Any] = [
+            "LastSet": Date(timeIntervalSince1970: 0),
+            "LastUse": Date(timeIntervalSince1970: 0),
+            "Content": [
+                "Choices": [
+                    [
+                        "Provider": "com.apple.wallpaper.choice.aerials",
+                        "Configuration": try configData(assetID: "OLD"),
+                    ]
+                ]
+            ]
+        ]
+
+        let root: [String: Any] = [
+            "AllSpacesAndDisplays": [
+                "Type": "linked",
+                "Linked": linkedSection,
+            ]
+        ]
+
+        let originalData = try PropertyListSerialization.data(fromPropertyList: root, format: .binary, options: 0)
+        try fs.writeData(originalData, to: indexURL, options: [.atomic])
+
+        let result = try editor.applyAerialAssetID("NEW", indexPlistURL: indexURL, backupRetentionCount: 10)
+        #expect(result.updatedProviderNodeCount == 1)
+
+        let updatedData = try fs.readData(from: indexURL)
+        let updatedAny = try PropertyListSerialization.propertyList(from: updatedData, options: [], format: nil)
+        let updatedRoot = try #require(updatedAny as? [String: Any])
+        let all = try #require(updatedRoot["AllSpacesAndDisplays"] as? [String: Any])
+        let linked = try #require(all["Linked"] as? [String: Any])
+        #expect(linked["LastSet"] as? Date == fixedDate)
+        #expect(linked["LastUse"] as? Date == fixedDate)
+    }
+
     @Test func testRepairConfiguration_throwsWhenUnsupportedShape() throws {
         let fs = InMemoryFileSystem()
         let editor = WallpaperStoreEditor(fileSystem: fs)

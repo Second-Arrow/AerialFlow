@@ -247,14 +247,61 @@ struct WallpaperStoreEditor: Sendable {
 
         var updatedCount = 0
 
-        updatedCount += upsertProviderNode(
+        // Legacy (works on macOS 26.*): top-level Desktop/Idle containers.
+        updatedCount += upsertProviderNodeInLegacySection(
             inSectionNamed: "Desktop",
             root: &root,
             provider: provider,
             configData: configData
         )
-        updatedCount += upsertProviderNode(
+        updatedCount += upsertProviderNodeInLegacySection(
             inSectionNamed: "Idle",
+            root: &root,
+            provider: provider,
+            configData: configData
+        )
+
+        // macOS 15.*: containers under `AllSpacesAndDisplays` and `SystemDefault`, with nodes living in:
+        // Section.Content.Choices[0].{ Provider, Configuration }
+        updatedCount += upsertProviderNodeInMacOS15Container(
+            containerKey: "AllSpacesAndDisplays",
+            sectionKey: "Desktop",
+            root: &root,
+            provider: provider,
+            configData: configData
+        )
+        updatedCount += upsertProviderNodeInMacOS15Container(
+            containerKey: "AllSpacesAndDisplays",
+            sectionKey: "Idle",
+            root: &root,
+            provider: provider,
+            configData: configData
+        )
+        updatedCount += upsertProviderNodeInMacOS15Container(
+            containerKey: "AllSpacesAndDisplays",
+            sectionKey: "Linked",
+            root: &root,
+            provider: provider,
+            configData: configData
+        )
+
+        updatedCount += upsertProviderNodeInMacOS15Container(
+            containerKey: "SystemDefault",
+            sectionKey: "Desktop",
+            root: &root,
+            provider: provider,
+            configData: configData
+        )
+        updatedCount += upsertProviderNodeInMacOS15Container(
+            containerKey: "SystemDefault",
+            sectionKey: "Idle",
+            root: &root,
+            provider: provider,
+            configData: configData
+        )
+        updatedCount += upsertProviderNodeInMacOS15Container(
+            containerKey: "SystemDefault",
+            sectionKey: "Linked",
             root: &root,
             provider: provider,
             configData: configData
@@ -263,7 +310,7 @@ struct WallpaperStoreEditor: Sendable {
         return UpsertResult(root: root, updatedCount: updatedCount)
     }
 
-    private func upsertProviderNode(
+    private func upsertProviderNodeInLegacySection(
         inSectionNamed sectionName: String,
         root: inout [String: Any],
         provider: String,
@@ -296,6 +343,34 @@ struct WallpaperStoreEditor: Sendable {
             root[sectionName] = section
         }
 
+        return 1
+    }
+
+    private func upsertProviderNodeInMacOS15Container(
+        containerKey: String,
+        sectionKey: String,
+        root: inout [String: Any],
+        provider: String,
+        configData: Data
+    ) -> Int {
+        guard var container = root[containerKey] as? [String: Any] else { return 0 }
+        guard var section = container[sectionKey] as? [String: Any] else { return 0 }
+
+        guard var content = section["Content"] as? [String: Any] else { return 0 }
+        guard var choices = content["Choices"] as? [Any] else { return 0 }
+        guard var choice0 = choices.first as? [String: Any] else { return 0 }
+
+        choice0["Provider"] = provider
+        choice0["Configuration"] = configData
+        choices[0] = choice0
+        content["Choices"] = choices
+        section["Content"] = content
+
+        if section["LastSet"] != nil { section["LastSet"] = now() }
+        if section["LastUse"] != nil { section["LastUse"] = now() }
+
+        container[sectionKey] = section
+        root[containerKey] = container
         return 1
     }
 

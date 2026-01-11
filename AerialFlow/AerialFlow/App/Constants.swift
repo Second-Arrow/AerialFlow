@@ -5,6 +5,15 @@ enum Constants {
     /// The subsystem identifier used for all Logger instances.
     static let loggerSubsystem = "com.secondarrow.AerialFlow"
 
+    // MARK: - Sparkle
+
+    /// Sparkle appcast feed used for update checks.
+    ///
+    /// Sparkle will read `SUFeedURL` from Info.plist by default, but we also provide this via
+    /// `SPUUpdaterDelegate` so update checks keep working even when the Info.plist is generated
+    /// (or missing Sparkle keys) in some build pipelines.
+    static let sparkleFeedURLString = "https://github.com/second-arrow/AerialFlow/releases/latest/download/appcast.xml"
+
     // MARK: - Support
 
     static let supportURL = URL(string: "https://buymeacoffee.com/second.arrow")

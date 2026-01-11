@@ -30,6 +30,7 @@ struct DiagnosticsSnapshotLoader: Sendable {
         let backups = Self.findIndexPlistBackups(fileSystem: fileSystem, indexPlistURL: indexPlistURL)
         let recentNames = backups.prefix(5).map(\.lastPathComponent)
         let storageUsedBytes = Self.calculateStorageUsed(fileSystem: fileSystem, videoDirectory: detection.videoDirectory)
+        let indexPlistShapeDescription = Self.detectIndexPlistShapeDescription(fileSystem: fileSystem, indexPlistURL: indexPlistURL)
 
         let resolvedLastAssetID = await lastAssetID
 
@@ -47,7 +48,8 @@ struct DiagnosticsSnapshotLoader: Sendable {
             nextScheduledChangeDate: await nextScheduledChangeDate,
             backupCount: backups.count,
             recentBackupFileNames: recentNames,
-            storageUsedBytes: storageUsedBytes
+            storageUsedBytes: storageUsedBytes,
+            indexPlistShapeDescription: indexPlistShapeDescription
         )
     }
 
@@ -110,6 +112,25 @@ struct DiagnosticsSnapshotLoader: Sendable {
         }
 
         return totalBytes
+    }
+
+    static func detectIndexPlistShapeDescription(fileSystem: any FileSystem, indexPlistURL: URL) -> String? {
+        guard fileSystem.fileExists(at: indexPlistURL) else { return nil }
+        let data: Data
+        do {
+            data = try fileSystem.readData(from: indexPlistURL)
+        } catch {
+            return nil
+        }
+
+        let rootAny: Any
+        do {
+            rootAny = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+        } catch {
+            return nil
+        }
+
+        return WallpaperStoreIndexPlistShape.summarize(root: rootAny).description
     }
 }
 

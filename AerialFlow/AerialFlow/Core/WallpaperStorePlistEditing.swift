@@ -137,7 +137,9 @@ struct WallpaperStorePlistEditor: Sendable {
     }
 
     private func shouldTouchTimestamps(path: [String]) -> Bool {
-        path.contains("Desktop") || path.contains("Idle")
+        // Legacy shape uses top-level "Desktop"/"Idle".
+        // macOS 15 shape can also use a single "Linked" node (desktop + idle together).
+        path.contains("Desktop") || path.contains("Idle") || path.contains("Linked")
     }
 
     // MARK: - Scanning

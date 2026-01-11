@@ -20,6 +20,7 @@ final class URLSessionDownloader: Downloading {
 struct AssetDownloader: Sendable {
     enum DownloadError: LocalizedError {
         case missingURL
+        case systemCacheAssetNotFound(assetID: String, expectedDirectory: URL)
         case couldNotCreateDirectory(URL)
         case downloadReturnedMissingTempFile(URL)
         case fileMoveFailed(from: URL, to: URL, underlying: Error)
@@ -28,6 +29,14 @@ struct AssetDownloader: Sendable {
             switch self {
             case .missingURL:
                 return "No download URL provided for the selected asset."
+            case .systemCacheAssetNotFound(let assetID, let expectedDirectory):
+                return """
+                macOS did not provide the Aerial video yet (assetID=\(assetID)) in:
+                \(expectedDirectory.path)
+
+                On macOS 15, Aerial videos are managed by macOS and stored in a system cache that AerialFlow cannot write to.
+                Open System Settings > Wallpaper, select Aerials, and wait for the video to download, then try again.
+                """
             case .couldNotCreateDirectory(let url):
                 return "Could not create destination directory: \(url.path)"
             case .downloadReturnedMissingTempFile(let url):
@@ -43,6 +52,7 @@ struct AssetDownloader: Sendable {
     private let fileSystem: FileSystem
     private let downloader: Downloading
     private let directoryDetector: ActiveVideoDirectoryDetector
+    private let features: AerialFlowFeatures
 
     /// Minimum file size (bytes) to consider an asset "present".
     private let minimumSizeBytes: Int64
@@ -51,11 +61,13 @@ struct AssetDownloader: Sendable {
         fileSystem: FileSystem,
         downloader: Downloading,
         directoryDetector: ActiveVideoDirectoryDetector,
+        features: AerialFlowFeatures,
         minimumSizeBytes: Int64 = Constants.minimumAssetFileSizeBytes
     ) {
         self.fileSystem = fileSystem
         self.downloader = downloader
         self.directoryDetector = directoryDetector
+        self.features = features
         self.minimumSizeBytes = minimumSizeBytes
     }
 
@@ -73,6 +85,33 @@ struct AssetDownloader: Sendable {
 
         let detection = try directoryDetector.detect()
         let dir = detection.videoDirectory
+        let destination = dir.appendingPathComponent("\(assetID).mov")
+
+        switch features.movDownloadMode {
+        case .relyOnSystemCache_macos15:
+            // On macOS 15, the active Aerial directory may be a root-owned `idleassetsd` cache.
+            // AerialFlow must not attempt to download/write `.mov` files there.
+            if fileSystem.fileExists(at: destination) {
+                let size = try fileSystem.fileSize(at: destination)
+                if size >= minimumSizeBytes {
+                    logger.debug("Asset present in system cache: \(destination.path, privacy: .public) size=\(size)")
+                    return Result(destinationURL: destination, didDownload: false)
+                }
+            }
+
+            // IMPORTANT: Do not block the UI waiting for macOS to fetch/cache the video.
+            // In this mode, applying the asset ID and reloading wallpaper pipelines is the trigger;
+            // the `.mov` may appear later (or require the user to open Wallpaper settings once).
+            if timeout <= 0 {
+                throw DownloadError.systemCacheAssetNotFound(assetID: assetID, expectedDirectory: dir)
+            }
+
+            logger.debug("Asset not yet present in system cache (non-blocking): \(destination.path, privacy: .public)")
+            return Result(destinationURL: destination, didDownload: false)
+
+        case .directToVideoDirectory:
+            break
+        }
 
         if !fileSystem.fileExists(at: dir) {
             do {
@@ -81,8 +120,6 @@ struct AssetDownloader: Sendable {
                 throw DownloadError.couldNotCreateDirectory(dir)
             }
         }
-
-        let destination = dir.appendingPathComponent("\(assetID).mov")
 
         if fileSystem.fileExists(at: destination) {
             let size = try fileSystem.fileSize(at: destination)

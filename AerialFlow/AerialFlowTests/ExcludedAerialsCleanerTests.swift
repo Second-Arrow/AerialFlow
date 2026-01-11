@@ -47,8 +47,9 @@ struct ExcludedAerialsCleanerTests {
         """
         try fs.writeData(Data(json.utf8), to: catalogURL, options: [])
         let catalog = AerialCatalog(fileURL: catalogURL, fileSystem: fs)
+        let features = AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
 
-        let cleaner = ExcludedAerialsCleaner(fileSystem: fs, directoryDetector: detector, catalog: catalog)
+        let cleaner = ExcludedAerialsCleaner(fileSystem: fs, directoryDetector: detector, catalog: catalog, features: features)
 
         let settings = AppSettings(
             excludedCategoryIDs: ["cat-2"],      // Exclude A2 by main category
@@ -90,13 +91,67 @@ struct ExcludedAerialsCleanerTests {
         """
         try fs.writeData(Data(json.utf8), to: catalogURL, options: [])
         let catalog = AerialCatalog(fileURL: catalogURL, fileSystem: fs)
+        let features = AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
 
-        let cleaner = ExcludedAerialsCleaner(fileSystem: fs, directoryDetector: detector, catalog: catalog)
+        let cleaner = ExcludedAerialsCleaner(fileSystem: fs, directoryDetector: detector, catalog: catalog, features: features)
         let settings = AppSettings(excludedCategoryIDs: [], excludedSubcategoryIDs: [], excludedAssetIDs: [])
 
         let report = try await cleaner.cleanExcludedMovFiles(settings: settings)
         #expect(report.removedCount == 0)
         #expect(report.failures.isEmpty)
+    }
+
+    @Test func testCleanExcludedMovFiles_macos15Mode_skipsWhenDirectoryIsSystemCache() async throws {
+        let fs = InMemoryFileSystem()
+        let runner = FakeCommandRunner()
+        runner.stub(
+            Command("/usr/bin/pgrep", ["-x", "-n", "WallpaperVideoExtension"]),
+            result: CommandResult(exitCode: 0, stdout: "567\n", stderr: "")
+        )
+        runner.stub(
+            Command("/usr/sbin/lsof", ["-nP", "-Fn", "-p", "567"]),
+            result: CommandResult(
+                exitCode: 0,
+                stdout: "p567\nn/Library/Application Support/com.apple.idleassetsd/Customer/4KSDR240FPS/ASSET.mov\n",
+                stderr: ""
+            )
+        )
+        let detector = ActiveVideoDirectoryDetector(runner: runner, homeDirectoryURL: URL(fileURLWithPath: "/Users/me", isDirectory: true))
+
+        // Even if a matching file exists, cleanup should be skipped in macOS 15 system-cache mode.
+        let dir = URL(fileURLWithPath: "/Library/Application Support/com.apple.idleassetsd/Customer/4KSDR240FPS", isDirectory: true)
+        try fs.createDirectory(at: dir)
+        let keep = dir.appendingPathComponent("A1.mov")
+        try fs.writeData(Data("x".utf8), to: keep, options: [])
+
+        // Catalog fixture.
+        let catalogURL = URL(fileURLWithPath: "/test/entries.json")
+        try fs.createDirectory(at: catalogURL.deletingLastPathComponent())
+        let json = """
+        {
+          "assets": [
+            { "id": "A1", "categories": ["cat-1"], "subcategories": [], "url-4K": "https://example.com/a1.mov" }
+          ],
+          "categories": [
+            { "id": "cat-1", "localizedNameKey": "Earth" }
+          ]
+        }
+        """
+        try fs.writeData(Data(json.utf8), to: catalogURL, options: [])
+        let catalog = AerialCatalog(fileURL: catalogURL, fileSystem: fs)
+
+        let cleaner = ExcludedAerialsCleaner(
+            fileSystem: fs,
+            directoryDetector: detector,
+            catalog: catalog,
+            features: AerialFlowFeatures(movDownloadMode: .relyOnSystemCache_macos15)
+        )
+        let settings = AppSettings(excludedAssetIDs: ["A1"])
+
+        let report = try await cleaner.cleanExcludedMovFiles(settings: settings)
+        #expect(report.removedCount == 0)
+        #expect(report.failures.isEmpty)
+        #expect(fs.fileExists(at: keep) == true)
     }
 }
 

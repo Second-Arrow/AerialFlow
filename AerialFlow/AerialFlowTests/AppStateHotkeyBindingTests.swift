@@ -241,6 +241,7 @@ struct AppStateHotkeyBindingTests {
                 stateStore: stateStore,
                 excludedAerialsCleanupStateStore: FakeExcludedAerialsCleanupStateStore(),
                 directoryDetector: ActiveVideoDirectoryDetector(runner: runner),
+                features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory),
                 downloader: FakeDownloader(),
                 brightnessStore: NoopBrightnessStore(),
                 storeEditor: WallpaperStoreEditor(fileSystem: fileSystem),
@@ -248,7 +249,8 @@ struct AppStateHotkeyBindingTests {
                 excludedAerialsCleaner: ExcludedAerialsCleaner(
                     fileSystem: fileSystem,
                     directoryDetector: ActiveVideoDirectoryDetector(runner: runner),
-                    catalog: FakeCatalog(snapshot: snapshot)
+                    catalog: FakeCatalog(snapshot: snapshot),
+                    features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
                 ),
                 screensaverLauncher: launcher,
                 hotkeyBinder: binder,
@@ -260,7 +262,8 @@ struct AppStateHotkeyBindingTests {
                 systemAccessProbe: SystemAccessProbe(
                     fileSystem: fileSystem,
                     directoryDetector: ActiveVideoDirectoryDetector(runner: runner),
-                    storeEditor: WallpaperStoreEditor(fileSystem: fileSystem)
+                    storeEditor: WallpaperStoreEditor(fileSystem: fileSystem),
+                    features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
                 ),
                 notificationPermissionService: NoopNotificationPermissionService(),
                 systemSettingsOpener: NoopSystemSettingsOpener()
@@ -337,6 +340,7 @@ struct AppStateHotkeyBindingTests {
                 stateStore: stateStore,
                 excludedAerialsCleanupStateStore: FakeExcludedAerialsCleanupStateStore(),
                 directoryDetector: ActiveVideoDirectoryDetector(runner: runner),
+                features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory),
                 downloader: FakeDownloader(),
                 brightnessStore: NoopBrightnessStore(),
                 storeEditor: WallpaperStoreEditor(fileSystem: fileSystem),
@@ -344,7 +348,8 @@ struct AppStateHotkeyBindingTests {
                 excludedAerialsCleaner: ExcludedAerialsCleaner(
                     fileSystem: fileSystem,
                     directoryDetector: ActiveVideoDirectoryDetector(runner: runner),
-                    catalog: FakeCatalog(snapshot: snapshot)
+                    catalog: FakeCatalog(snapshot: snapshot),
+                    features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
                 ),
                 screensaverLauncher: launcher,
                 hotkeyBinder: binder,
@@ -356,7 +361,8 @@ struct AppStateHotkeyBindingTests {
                 systemAccessProbe: SystemAccessProbe(
                     fileSystem: fileSystem,
                     directoryDetector: ActiveVideoDirectoryDetector(runner: runner),
-                    storeEditor: WallpaperStoreEditor(fileSystem: fileSystem)
+                    storeEditor: WallpaperStoreEditor(fileSystem: fileSystem),
+                    features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
                 ),
                 notificationPermissionService: NoopNotificationPermissionService(),
                 systemSettingsOpener: NoopSystemSettingsOpener()
@@ -454,6 +460,7 @@ struct AppStateHotkeyBindingTests {
                 stateStore: stateStore,
                 excludedAerialsCleanupStateStore: FakeExcludedAerialsCleanupStateStore(),
                 directoryDetector: ActiveVideoDirectoryDetector(runner: runner),
+                features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory),
                 downloader: FakeDownloader(),
                 brightnessStore: NoopBrightnessStore(),
                 storeEditor: WallpaperStoreEditor(fileSystem: fileSystem),
@@ -461,7 +468,8 @@ struct AppStateHotkeyBindingTests {
                 excludedAerialsCleaner: ExcludedAerialsCleaner(
                     fileSystem: fileSystem,
                     directoryDetector: ActiveVideoDirectoryDetector(runner: runner),
-                    catalog: FakeCatalog(snapshot: snapshot)
+                    catalog: FakeCatalog(snapshot: snapshot),
+                    features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
                 ),
                 screensaverLauncher: launcher,
                 hotkeyBinder: binder,
@@ -473,7 +481,8 @@ struct AppStateHotkeyBindingTests {
                 systemAccessProbe: SystemAccessProbe(
                     fileSystem: fileSystem,
                     directoryDetector: ActiveVideoDirectoryDetector(runner: runner),
-                    storeEditor: WallpaperStoreEditor(fileSystem: fileSystem)
+                    storeEditor: WallpaperStoreEditor(fileSystem: fileSystem),
+                    features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
                 ),
                 notificationPermissionService: NoopNotificationPermissionService(),
                 systemSettingsOpener: NoopSystemSettingsOpener()
@@ -549,6 +558,7 @@ struct AppStateHotkeyBindingTests {
                 stateStore: stateStore,
                 excludedAerialsCleanupStateStore: FakeExcludedAerialsCleanupStateStore(),
                 directoryDetector: ActiveVideoDirectoryDetector(runner: runner),
+                features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory),
                 downloader: FakeDownloader(),
                 brightnessStore: NoopBrightnessStore(),
                 storeEditor: WallpaperStoreEditor(fileSystem: fileSystem),
@@ -556,7 +566,8 @@ struct AppStateHotkeyBindingTests {
                 excludedAerialsCleaner: ExcludedAerialsCleaner(
                     fileSystem: fileSystem,
                     directoryDetector: ActiveVideoDirectoryDetector(runner: runner),
-                    catalog: FakeCatalog(snapshot: snapshot)
+                    catalog: FakeCatalog(snapshot: snapshot),
+                    features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
                 ),
                 screensaverLauncher: launcher,
                 hotkeyBinder: binder,
@@ -568,7 +579,8 @@ struct AppStateHotkeyBindingTests {
                 systemAccessProbe: SystemAccessProbe(
                     fileSystem: fileSystem,
                     directoryDetector: ActiveVideoDirectoryDetector(runner: runner),
-                    storeEditor: WallpaperStoreEditor(fileSystem: fileSystem)
+                    storeEditor: WallpaperStoreEditor(fileSystem: fileSystem),
+                    features: AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
                 ),
                 notificationPermissionService: NoopNotificationPermissionService(),
                 systemSettingsOpener: NoopSystemSettingsOpener()

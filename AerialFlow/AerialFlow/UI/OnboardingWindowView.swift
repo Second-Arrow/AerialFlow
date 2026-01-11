@@ -51,6 +51,7 @@ struct OnboardingWindowView: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
+        .background(WindowFrontingView())
         .padding(18)
         .frame(width: 640, height: 420)
     }
