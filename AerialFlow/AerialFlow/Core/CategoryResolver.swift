@@ -7,17 +7,25 @@ import os
 actor CategoryResolver {
     private let logger = Logger(subsystem: Constants.loggerSubsystem, category: "CategoryResolver")
     private let fileSystem: FileSystem
-    private let bundleRootURL: URL
+    private let candidateBundleRootURLs: [URL]
 
     private var cachedStrings: [String: Set<String>]?
     private var cacheTimestamp: Date?
 
     init(
         fileSystem: FileSystem,
-        bundleRootURL: URL = URL(fileURLWithPath: "/Library/Application Support/com.apple.idleassetsd/Customer/TVIdleScreenStrings.bundle", isDirectory: true)
+        bundleRootURL: URL
     ) {
         self.fileSystem = fileSystem
-        self.bundleRootURL = bundleRootURL
+        self.candidateBundleRootURLs = [bundleRootURL]
+    }
+
+    init(
+        fileSystem: FileSystem,
+        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) {
+        self.fileSystem = fileSystem
+        self.candidateBundleRootURLs = AerialSystemPaths.candidateStringsBundleRootURLs(homeDirectoryURL: homeDirectoryURL)
     }
 
     /// Loads localized strings from `*.lproj/Localizable(.nocache).strings` files.
@@ -32,8 +40,9 @@ actor CategoryResolver {
             return cachedStrings
         }
 
-        guard fileSystem.fileExists(at: bundleRootURL) else {
-            cachedStrings = [:]
+        guard let bundleRootURL = candidateBundleRootURLs.first(where: { fileSystem.fileExists(at: $0) && fileSystem.isReadable(at: $0) }) else {
+            // Important: do not cache an empty result here.
+            // The bundle may appear later after the user enables Aerials.
             return [:]
         }
 
@@ -42,7 +51,6 @@ actor CategoryResolver {
             lprojDirs = try fileSystem.listFiles(in: bundleRootURL).filter { $0.pathExtension == "lproj" }
         } catch {
             logger.debug("Failed to list bundle root: \(String(describing: error), privacy: .public)")
-            cachedStrings = [:]
             return [:]
         }
 

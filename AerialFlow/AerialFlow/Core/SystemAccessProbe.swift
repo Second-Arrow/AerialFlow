@@ -25,7 +25,7 @@ struct SystemAccessProbe: SystemAccessProbing, Sendable {
     private let fileSystem: any FileSystem
     private let directoryDetector: ActiveVideoDirectoryDetector
     private let storeEditor: WallpaperStoreEditor
-    private let catalogURL: URL
+    private let candidateCatalogURLs: [URL]
     private let features: AerialFlowFeatures
 
     init(
@@ -33,13 +33,27 @@ struct SystemAccessProbe: SystemAccessProbing, Sendable {
         directoryDetector: ActiveVideoDirectoryDetector,
         storeEditor: WallpaperStoreEditor,
         features: AerialFlowFeatures,
-        catalogURL: URL = URL(fileURLWithPath: "/Library/Application Support/com.apple.idleassetsd/Customer/entries.json")
+        catalogURL: URL
     ) {
         self.fileSystem = fileSystem
         self.directoryDetector = directoryDetector
         self.storeEditor = storeEditor
         self.features = features
-        self.catalogURL = catalogURL
+        self.candidateCatalogURLs = [catalogURL]
+    }
+
+    init(
+        fileSystem: any FileSystem,
+        directoryDetector: ActiveVideoDirectoryDetector,
+        storeEditor: WallpaperStoreEditor,
+        features: AerialFlowFeatures,
+        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) {
+        self.fileSystem = fileSystem
+        self.directoryDetector = directoryDetector
+        self.storeEditor = storeEditor
+        self.features = features
+        self.candidateCatalogURLs = AerialSystemPaths.candidateCatalogURLs(homeDirectoryURL: homeDirectoryURL)
     }
 
     func probe(settings: AppSettings) -> SystemAccessReport {
@@ -56,29 +70,45 @@ struct SystemAccessProbe: SystemAccessProbing, Sendable {
     private func catalogStatusItem() -> SystemAccessItem {
         let title = "Aerial catalog (entries.json)"
 
-        guard fileSystem.fileExists(at: catalogURL) else {
-            return SystemAccessItem(
-                id: "catalog",
-                title: title,
-                state: .error,
-                detail: "Missing at \(catalogURL.path). macOS normally provides this. If you haven’t enabled Aerials yet, open System Settings > Wallpaper and select Aerials."
-            )
-        }
+        let checkedPaths = candidateCatalogURLs.map(\.path).joined(separator: "\n- ")
 
-        guard fileSystem.isReadable(at: catalogURL) else {
+        for url in candidateCatalogURLs {
+            guard fileSystem.fileExists(at: url) else { continue }
+
+            guard fileSystem.isReadable(at: url) else {
+                return SystemAccessItem(
+                    id: "catalog",
+                    title: title,
+                    state: .error,
+                    detail: """
+                    Not readable at \(url.path).
+
+                    Checked:
+                    - \(checkedPaths)
+                    """
+                )
+            }
+
             return SystemAccessItem(
                 id: "catalog",
                 title: title,
-                state: .error,
-                detail: "Not readable at \(catalogURL.path). Check file permissions or security software, then try again."
+                state: .ok,
+                detail: url.path
             )
         }
 
         return SystemAccessItem(
             id: "catalog",
             title: title,
-            state: .ok,
-            detail: catalogURL.path
+            state: .error,
+            detail: """
+            Missing.
+
+            Checked:
+            - \(checkedPaths)
+
+            macOS normally provides this after you enable Aerials. Open System Settings > Wallpaper and select Aerials once, then try again.
+            """
         )
     }
 

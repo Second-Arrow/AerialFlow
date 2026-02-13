@@ -109,6 +109,85 @@ struct SystemAccessProbeTests {
         #expect(videos?.state == .ok)
         #expect(videos?.detail.contains("idleassetsd") == true)
     }
+
+    @Test func testProbe_reportsOk_whenPreferredCatalogReadable_andLegacyMissing() throws {
+        let fs = InMemoryFileSystem()
+        let runner = FakeCommandRunner()
+        let home = URL(fileURLWithPath: "/home", isDirectory: true)
+        let detector = ActiveVideoDirectoryDetector(runner: runner, homeDirectoryURL: home)
+        let editor = WallpaperStoreEditor(fileSystem: fs)
+        let features = AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
+
+        let preferredURL = AerialSystemPaths.preferredCatalogURL(homeDirectoryURL: home)
+        try fs.createDirectory(at: preferredURL.deletingLastPathComponent())
+        try fs.writeData(Data("{}".utf8), to: preferredURL, options: [.atomic])
+
+        let indexURL = URL(fileURLWithPath: "/wallpaper/Index.plist")
+        try fs.createDirectory(at: indexURL.deletingLastPathComponent())
+        let configData = try PropertyListSerialization.data(
+            fromPropertyList: ["assetID": "A"],
+            format: .binary,
+            options: 0
+        )
+        let root: [String: Any] = [
+            "SystemDefault": [
+                "Linked": [
+                    "Content": [
+                        "Choices": [
+                            [
+                                "Provider": "com.apple.wallpaper.choice.aerials",
+                                "Configuration": configData,
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        let indexData = try PropertyListSerialization.data(fromPropertyList: root, format: .binary, options: 0)
+        try fs.writeData(indexData, to: indexURL, options: [.atomic])
+
+        let probe = SystemAccessProbe(
+            fileSystem: fs,
+            directoryDetector: detector,
+            storeEditor: editor,
+            features: features,
+            homeDirectoryURL: home
+        )
+
+        let settings = AppSettings(indexPlistURL: indexURL)
+        let report = probe.probe(settings: settings)
+
+        let catalogItem = report.items.first(where: { $0.id == "catalog" })
+        #expect(catalogItem?.state == .ok)
+        #expect(catalogItem?.detail == preferredURL.path)
+    }
+
+    @Test func testProbe_catalogErrorMessageListsBothCandidatePathsWhenMissing() throws {
+        let fs = InMemoryFileSystem()
+        let runner = FakeCommandRunner()
+        let home = URL(fileURLWithPath: "/home", isDirectory: true)
+        let detector = ActiveVideoDirectoryDetector(runner: runner, homeDirectoryURL: home)
+        let editor = WallpaperStoreEditor(fileSystem: fs)
+        let features = AerialFlowFeatures(movDownloadMode: .directToVideoDirectory)
+
+        let probe = SystemAccessProbe(
+            fileSystem: fs,
+            directoryDetector: detector,
+            storeEditor: editor,
+            features: features,
+            homeDirectoryURL: home
+        )
+
+        let report = probe.probe(settings: AppSettings(indexPlistURL: URL(fileURLWithPath: "/missing/Index.plist")))
+        let catalog = report.items.first(where: { $0.id == "catalog" })
+
+        let preferred = AerialSystemPaths.preferredCatalogURL(homeDirectoryURL: home).path
+        let legacy = AerialSystemPaths.legacyCatalogURL().path
+
+        #expect(catalog?.state == .error)
+        #expect(catalog?.detail.contains(preferred) == true)
+        #expect(catalog?.detail.contains(legacy) == true)
+    }
 }
 
 

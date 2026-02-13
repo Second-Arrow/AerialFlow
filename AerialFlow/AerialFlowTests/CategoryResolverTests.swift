@@ -190,4 +190,55 @@ struct CategoryResolverTests {
         let second = await resolver.loadAllLocalizedStrings()
         #expect(second["TestKey"]?.contains("ModifiedValue") == true)
     }
+
+    @Test func testDefaultInit_prefersWallpaperManifestStringsBundle() async throws {
+        let fs = InMemoryFileSystem()
+        let home = URL(fileURLWithPath: "/home", isDirectory: true)
+
+        let preferredRoot = AerialSystemPaths.preferredStringsBundleRootURL(homeDirectoryURL: home)
+        let legacyRoot = AerialSystemPaths.legacyStringsBundleRootURL()
+
+        let preferredEn = preferredRoot.appendingPathComponent("en.lproj", isDirectory: true)
+        let legacyEn = legacyRoot.appendingPathComponent("en.lproj", isDirectory: true)
+
+        try fs.createDirectory(at: preferredRoot)
+        try fs.createDirectory(at: preferredEn)
+        try fs.createDirectory(at: legacyRoot)
+        try fs.createDirectory(at: legacyEn)
+
+        try fs.writeData(
+            stringsPlistXML(["TestKey": "PreferredValue"]),
+            to: preferredEn.appendingPathComponent("Localizable.strings"),
+            options: [.atomic]
+        )
+        try fs.writeData(
+            stringsPlistXML(["TestKey": "LegacyValue"]),
+            to: legacyEn.appendingPathComponent("Localizable.strings"),
+            options: [.atomic]
+        )
+
+        let resolver = CategoryResolver(fileSystem: fs, homeDirectoryURL: home)
+        let strings = await resolver.loadAllLocalizedStrings()
+        #expect(strings["TestKey"]?.contains("PreferredValue") == true)
+    }
+
+    @Test func testDefaultInit_fallsBackToLegacyStringsBundleWhenPreferredMissing() async throws {
+        let fs = InMemoryFileSystem()
+        let home = URL(fileURLWithPath: "/home", isDirectory: true)
+
+        let legacyRoot = AerialSystemPaths.legacyStringsBundleRootURL()
+        let legacyEn = legacyRoot.appendingPathComponent("en.lproj", isDirectory: true)
+
+        try fs.createDirectory(at: legacyRoot)
+        try fs.createDirectory(at: legacyEn)
+        try fs.writeData(
+            stringsPlistXML(["TestKey": "LegacyValue"]),
+            to: legacyEn.appendingPathComponent("Localizable.strings"),
+            options: [.atomic]
+        )
+
+        let resolver = CategoryResolver(fileSystem: fs, homeDirectoryURL: home)
+        let strings = await resolver.loadAllLocalizedStrings()
+        #expect(strings["TestKey"]?.contains("LegacyValue") == true)
+    }
 }

@@ -103,6 +103,49 @@ struct CatalogTests {
             #expect(Bool(false), "Unexpected error type")
         }
     }
+
+    @Test func testAerialCatalog_defaultInit_prefersWallpaperManifestEntriesJson() async throws {
+        let fs = InMemoryFileSystem()
+        let home = URL(fileURLWithPath: "/home", isDirectory: true)
+
+        let preferredURL = AerialSystemPaths.preferredCatalogURL(homeDirectoryURL: home)
+        let legacyURL = AerialSystemPaths.legacyCatalogURL()
+
+        try fs.createDirectory(at: preferredURL.deletingLastPathComponent())
+        try fs.createDirectory(at: legacyURL.deletingLastPathComponent())
+
+        let preferredJSON = #"{"assets":[{"id":"P","categories":["c"],"url-4K":"https://example.com/p.mov"}],"categories":[{"id":"c","localizedNameKey":"Preferred"}]}"#
+        let legacyJSON = #"{"assets":[{"id":"L","categories":["c"],"url-4K":"https://example.com/l.mov"}],"categories":[{"id":"c","localizedNameKey":"Legacy"}]}"#
+
+        try fs.writeData(Data(preferredJSON.utf8), to: preferredURL, options: [])
+        try fs.writeData(Data(legacyJSON.utf8), to: legacyURL, options: [])
+
+        let catalog = AerialCatalog(fileSystem: fs, homeDirectoryURL: home)
+        let snapshot = try await catalog.loadSnapshot()
+
+        #expect(snapshot.fileURL == preferredURL)
+        #expect(snapshot.assets.first?.id == "P")
+    }
+
+    @Test func testAerialCatalog_defaultInit_fallsBackToLegacyWhenPreferredMissing() async throws {
+        let fs = InMemoryFileSystem()
+        let home = URL(fileURLWithPath: "/home", isDirectory: true)
+
+        let preferredURL = AerialSystemPaths.preferredCatalogURL(homeDirectoryURL: home)
+        let legacyURL = AerialSystemPaths.legacyCatalogURL()
+
+        // Only create legacy.
+        try fs.createDirectory(at: legacyURL.deletingLastPathComponent())
+        let legacyJSON = #"{"assets":[{"id":"L","categories":["c"],"url-4K":"https://example.com/l.mov"}],"categories":[{"id":"c","localizedNameKey":"Legacy"}]}"#
+        try fs.writeData(Data(legacyJSON.utf8), to: legacyURL, options: [])
+
+        let catalog = AerialCatalog(fileSystem: fs, homeDirectoryURL: home)
+        let snapshot = try await catalog.loadSnapshot()
+
+        #expect(snapshot.fileURL != preferredURL)
+        #expect(snapshot.fileURL == legacyURL)
+        #expect(snapshot.assets.first?.id == "L")
+    }
 }
 
 

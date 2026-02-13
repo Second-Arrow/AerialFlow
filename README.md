@@ -95,7 +95,7 @@ Access settings via the menu bar icon:
 
 AerialFlow works by:
 
-1. **Catalog Management**: Reads Apple’s Aerial catalog (`entries.json`) as provided by macOS (`idleassetsd`)
+1. **Catalog Management**: Reads Apple’s Aerial catalog (`entries.json`) as provided by macOS
 2. **Asset Selection**: Picks the next eligible Aerial (respecting exclusions and optional light-sensitive filtering)
 3. **On-demand Downloads**: Ensures the chosen Aerial video exists on disk (downloads it if missing)
 4. **Wallpaper Application**: Updates the macOS wallpaper store (`Index.plist`) and reloads wallpaper pipelines
@@ -250,7 +250,7 @@ This project follows Swift best practices:
 ### macOS 15.* vs macOS 26.* (Aerial video storage behavior)
 
 - **macOS 15.\***: Aerial videos are managed by macOS and stored in a **system cache** under `/Library/Application Support/com.apple.idleassetsd/Customer/...` (root-owned). AerialFlow **does not download or delete** `.mov` files in this directory; it relies on macOS to fetch/cache videos after AerialFlow updates the wallpaper `assetID`.
-- **macOS 26.\***: AerialFlow uses the existing behavior where the active Aerial videos directory is expected to be **writable** by the current user (and AerialFlow may download/remove `.mov` files there).
+- **macOS 26.\***: Aerial videos and catalog metadata live in the **per-user wallpaper store** under `~/Library/Application Support/com.apple.wallpaper/aerials/`.\n+  - Catalog: `~/Library/Application Support/com.apple.wallpaper/aerials/manifest/entries.json`\n+  - Videos: `~/Library/Application Support/com.apple.wallpaper/aerials/videos/`\n+\n+  AerialFlow prefers this catalog location on newer macOS versions, and falls back to the legacy `idleassetsd` catalog if needed.
 
 ### Hotkeys Not Working
 
