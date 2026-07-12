@@ -50,5 +50,9 @@ final class RotationCoordinator: Sendable {
     func nextInSubcategory(settings: AppSettings, subcategoryID: String) async throws -> AerialEngine.Report {
         try await engine.nextInSubcategory(settings: settings, subcategoryID: subcategoryID)
     }
+
+    func apply(assetID: String, settings: AppSettings) async throws -> AerialEngine.Report {
+        try await engine.apply(assetID: assetID, settings: settings)
+    }
 }
 

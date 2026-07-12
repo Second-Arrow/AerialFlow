@@ -302,6 +302,10 @@ final class AppState: ObservableObject {
         await actions.nextInSubcategory()
     }
 
+    func applyAsset(id assetID: String) async {
+        await actions.applySpecificAsset(id: assetID)
+    }
+
     private func scheduledNextAerial() async {
         await actions.scheduledNextAerial()
     }

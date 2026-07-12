@@ -47,7 +47,10 @@ struct ExclusionsSettingsPane: View {
                         set: { appState.settings.excludedAssetIDs = $0 }
                     ),
                     searchText: $exclusionsSearchText,
-                    currentAssetID: currentAssetID
+                    currentAssetID: currentAssetID,
+                    onApplyAsset: { assetID in
+                        Task { await appState.applyAsset(id: assetID) }
+                    }
                 )
 
                 ExcludedCategoriesPicker(viewModel: viewModel)

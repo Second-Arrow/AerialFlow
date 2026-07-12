@@ -11,6 +11,8 @@ final class ExclusionPickerViewModel: ObservableObject {
     let excludedAssetIDs: Binding<Set<String>>
     let searchText: Binding<String>
     let currentAssetID: String?
+    /// Invoked to apply a specific Aerial (by asset ID) immediately.
+    let onApplyAsset: ((String) -> Void)?
 
     init(
         rows: [ExclusionRow],
@@ -20,7 +22,8 @@ final class ExclusionPickerViewModel: ObservableObject {
         excludedSubcategoryIDs: Binding<Set<String>>,
         excludedAssetIDs: Binding<Set<String>>,
         searchText: Binding<String>,
-        currentAssetID: String?
+        currentAssetID: String?,
+        onApplyAsset: ((String) -> Void)? = nil
     ) {
         self.rows = rows
         self.categoryDisplayNameByID = categoryDisplayNameByID
@@ -30,6 +33,7 @@ final class ExclusionPickerViewModel: ObservableObject {
         self.excludedAssetIDs = excludedAssetIDs
         self.searchText = searchText
         self.currentAssetID = currentAssetID
+        self.onApplyAsset = onApplyAsset
     }
 
     var filteredRows: [ExclusionRow] {

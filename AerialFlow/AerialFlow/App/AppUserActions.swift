@@ -127,6 +127,28 @@ final class AppUserActions {
         }
     }
 
+    /// Applies a specific Aerial immediately, bypassing rotation selection.
+    func applySpecificAsset(id assetID: String) async {
+        guard !ui.isBusy else {
+            await handleUserInitiatedError(NextAerialError.busy, logContext: "Apply Aerial")
+            return
+        }
+
+        ui.isBusy = true
+        ui.lastErrorMessage = nil
+        ui.statusLine = "Applying Aerial…"
+        defer { ui.isBusy = false }
+
+        do {
+            let report = try await rotationCoordinator.apply(assetID: assetID, settings: settingsStore.settings)
+            let displayName = await catalogPresentation.assetDisplayName(for: report.chosenAssetID) ?? report.chosenAssetID
+            ui.statusLine = displayName
+            await rotationCoordinator.notifyStateChanged()
+        } catch {
+            await handleUserInitiatedError(error, logContext: "Apply Aerial")
+        }
+    }
+
     func excludeCurrentSubcategoryAndNext() async {
         guard !ui.isBusy else { return }
 

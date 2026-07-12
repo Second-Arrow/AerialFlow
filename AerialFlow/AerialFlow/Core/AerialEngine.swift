@@ -9,6 +9,17 @@ struct AerialEngine: Sendable {
         let updatedProviderNodes: Int
     }
 
+    enum EngineError: LocalizedError {
+        case assetNotFound(assetID: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .assetNotFound(let assetID):
+                return "The selected Aerial (\(assetID)) is no longer available in the catalog."
+            }
+        }
+    }
+
     private let logger = Logger(subsystem: Constants.loggerSubsystem, category: "AerialEngine")
 
     private let catalog: AerialCataloging
@@ -73,6 +84,15 @@ struct AerialEngine: Sendable {
             rng: &rng
         )
 
+        return try await applyChosenAssetPipeline(chosen: chosen, settings: settings, logContext: logContext)
+    }
+
+    /// Executes the tail of the core pipeline for an already-chosen asset: download → apply → reload → persist state.
+    private func applyChosenAssetPipeline(
+        chosen: AerialAsset,
+        settings: any AerialEngineSettings,
+        logContext: String
+    ) async throws -> Report {
         let url = try urlSelector.pickURL(for: chosen)
 
         func applyChosenAsset() throws -> WallpaperStoreEditor.ApplyResult {
@@ -163,6 +183,29 @@ struct AerialEngine: Sendable {
             randomMode: false,
             settings: settings,
             logContext: "Next-in-subcategory applied subcategoryID=\(subcategoryID)"
+        )
+    }
+
+    /// Applies a specific Aerial immediately, bypassing selection (`pickNext`).
+    ///
+    /// The asset is resolved from the catalog by ID, then run through the
+    /// download → apply → reload pipeline. Throws `EngineError.assetNotFound`
+    /// when the ID is missing or absent from the current catalog.
+    @discardableResult
+    func apply(assetID: String, settings: any AerialEngineSettings) async throws -> Report {
+        guard !assetID.isEmpty else {
+            throw EngineError.assetNotFound(assetID: assetID)
+        }
+
+        let snapshot = try await catalog.loadSnapshot()
+        guard let chosen = snapshot.assets.first(where: { $0.id == assetID }) else {
+            throw EngineError.assetNotFound(assetID: assetID)
+        }
+
+        return try await applyChosenAssetPipeline(
+            chosen: chosen,
+            settings: settings,
+            logContext: "Apply-specific applied"
         )
     }
 }

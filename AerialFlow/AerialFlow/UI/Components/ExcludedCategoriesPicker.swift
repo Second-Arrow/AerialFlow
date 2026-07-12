@@ -34,6 +34,10 @@ private struct ExclusionPickerRowView: View {
     let displayName: String
     let isExcluded: Bool
     let isCurrent: Bool
+    /// Non-nil only for asset rows that can be applied immediately.
+    let onApply: (() -> Void)?
+
+    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -42,6 +46,12 @@ private struct ExclusionPickerRowView: View {
             Text(displayName)
                 .strikethrough(isExcluded)
             Spacer()
+            if let onApply, isHovered {
+                Button("Apply current", action: onApply)
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .help("Apply this Aerial now and set it as the next one.")
+            }
             if isCurrent {
                 Text("current")
                     .font(.caption)
@@ -52,11 +62,19 @@ private struct ExclusionPickerRowView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
             }
         }
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
     }
 }
 
 struct ExcludedCategoriesPicker: View {
     let viewModel: ExclusionPickerViewModel
+
+    /// Returns an apply closure only for asset rows when an apply handler is available.
+    private func applyAction(for row: ExclusionRow) -> (() -> Void)? {
+        guard let assetID = row.assetID, let onApplyAsset = viewModel.onApplyAsset else { return nil }
+        return { onApplyAsset(assetID) }
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -78,7 +96,8 @@ struct ExcludedCategoriesPicker: View {
                                     row: row,
                                     displayName: viewModel.displayName(for: row),
                                     isExcluded: viewModel.isRowExcluded(row),
-                                    isCurrent: (row.assetID != nil && row.assetID == viewModel.currentAssetID)
+                                    isCurrent: (row.assetID != nil && row.assetID == viewModel.currentAssetID),
+                                    onApply: applyAction(for: row)
                                 )
                             }
                             .disabled(viewModel.isRowDisabled(row))

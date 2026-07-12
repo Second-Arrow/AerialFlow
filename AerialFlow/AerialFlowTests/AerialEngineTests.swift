@@ -463,6 +463,108 @@ struct AerialEngineTests {
         #expect(report.chosenAssetID == "landscape")
     }
 
+    @Test func testApply_appliesSpecificAsset_withoutPicking() async throws {
+        let recorder = Recorder()
+        let state = FakeEngineStateStore(lastAssetID: "a")
+
+        let assets = [
+            AerialAsset(id: "a", categories: [], urlVariants: ["url-4K": URL(string: "https://example.com/a.mov")!]),
+            AerialAsset(id: "b", categories: [], urlVariants: ["url-4K": URL(string: "https://example.com/b.mov")!]),
+        ]
+        let catalogSnapshot = AerialCatalog.Snapshot(assets: assets, categories: [], fileURL: URL(fileURLWithPath: "/dev/null"), fileModificationDate: nil)
+
+        let engine = AerialEngine(
+            catalog: FakeCatalog(snapshot: catalogSnapshot),
+            picker: FakePicker(recorder: recorder),
+            urlSelector: FakeURLSelector(recorder: recorder, url: URL(string: "https://example.com/b.mov")!),
+            downloader: FakeDownloader(recorder: recorder),
+            brightnessStore: NoopBrightnessStore(),
+            storeEditor: FakeStoreEditor(recorder: recorder),
+            reloader: FakeReloader(recorder: recorder),
+            stateStore: state,
+            now: { Date(timeIntervalSince1970: 1) }
+        )
+
+        let report = try await engine.apply(
+            assetID: "b",
+            settings: Settings(
+                excludedCategoryIDs: [],
+                excludedSubcategoryIDs: [],
+                excludedAssetIDs: [],
+                randomMode: false,
+                downloadTimeout: 5,
+                indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist"),
+                backupRetentionCount: 10,
+                isLightSensitiveFilteringEnabled: false,
+                allowedLightStartMinutes: 10 * 60,
+                allowedLightEndMinutes: 18 * 60,
+                lightSensitivity: 0.5
+            )
+        )
+
+        #expect(report.chosenAssetID == "b")
+        // Never invokes the picker: applies the requested asset directly.
+        let events = recorder.snapshot()
+        #expect(events == ["url", "download", "apply", "reload"])
+
+        let lastAsset = await state.getLastAssetID()
+        #expect(lastAsset == "b")
+    }
+
+    @Test func testApply_throwsAssetNotFound_whenAssetMissing() async {
+        let recorder = Recorder()
+        let state = FakeEngineStateStore(lastAssetID: "a")
+
+        let assets = [
+            AerialAsset(id: "a", categories: [], urlVariants: ["url-4K": URL(string: "https://example.com/a.mov")!]),
+        ]
+        let catalogSnapshot = AerialCatalog.Snapshot(assets: assets, categories: [], fileURL: URL(fileURLWithPath: "/dev/null"), fileModificationDate: nil)
+
+        let engine = AerialEngine(
+            catalog: FakeCatalog(snapshot: catalogSnapshot),
+            picker: FakePicker(recorder: recorder),
+            urlSelector: FakeURLSelector(recorder: recorder, url: URL(string: "https://example.com/a.mov")!),
+            downloader: FakeDownloader(recorder: recorder),
+            brightnessStore: NoopBrightnessStore(),
+            storeEditor: FakeStoreEditor(recorder: recorder),
+            reloader: FakeReloader(recorder: recorder),
+            stateStore: state,
+            now: { Date(timeIntervalSince1970: 1) }
+        )
+
+        do {
+            _ = try await engine.apply(
+                assetID: "missing",
+                settings: Settings(
+                    excludedCategoryIDs: [],
+                    excludedSubcategoryIDs: [],
+                    excludedAssetIDs: [],
+                    randomMode: false,
+                    downloadTimeout: 5,
+                    indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist"),
+                    backupRetentionCount: 10,
+                    isLightSensitiveFilteringEnabled: false,
+                    allowedLightStartMinutes: 10 * 60,
+                    allowedLightEndMinutes: 18 * 60,
+                    lightSensitivity: 0.5
+                )
+            )
+            #expect(Bool(false), "Expected assetNotFound to be thrown")
+        } catch let error as AerialEngine.EngineError {
+            guard case .assetNotFound(let assetID) = error else {
+                #expect(Bool(false), "Expected assetNotFound, got \(error)")
+                return
+            }
+            #expect(assetID == "missing")
+        } catch {
+            #expect(Bool(false), "Expected AerialEngine.EngineError, got \(error)")
+        }
+
+        // No pipeline work performed when the asset is missing.
+        let events = recorder.snapshot()
+        #expect(events.isEmpty)
+    }
+
     @Test func testNextInSubcategory_filtersAssetsAndForcesNonRandomPick() async throws {
         let recorder = Recorder()
         let state = FakeEngineStateStore(lastAssetID: "b")
