@@ -8,6 +8,7 @@ actor CategoryResolver {
     private let logger = Logger(subsystem: Constants.loggerSubsystem, category: "CategoryResolver")
     private let fileSystem: FileSystem
     private let candidateBundleRootURLs: [URL]
+    private let stringsSource: AerialLocalizedStringsSource
 
     private var cachedStrings: [String: Set<String>]?
     private var cacheTimestamp: Date?
@@ -18,6 +19,7 @@ actor CategoryResolver {
     ) {
         self.fileSystem = fileSystem
         self.candidateBundleRootURLs = [bundleRootURL]
+        self.stringsSource = AerialLocalizedStringsSource(fileSystem: fileSystem)
     }
 
     init(
@@ -26,9 +28,13 @@ actor CategoryResolver {
     ) {
         self.fileSystem = fileSystem
         self.candidateBundleRootURLs = AerialSystemPaths.candidateStringsBundleRootURLs(homeDirectoryURL: homeDirectoryURL)
+        self.stringsSource = AerialLocalizedStringsSource(fileSystem: fileSystem)
     }
 
-    /// Loads localized strings from `*.lproj/Localizable(.nocache).strings` files.
+    /// Loads localized strings from Apple's `TVIdleScreenStrings` bundle.
+    ///
+    /// Supports both the macOS 26+ compiled `.loctable` format and the legacy per-locale
+    /// `*.lproj/Localizable(.nocache).strings` format (see `AerialLocalizedStringsSource`).
     ///
     /// Important: we only load the best-matching localization (with fallbacks) so the UI shows
     /// the user's preferred language, rather than an arbitrary merged set across all locales.
@@ -46,34 +52,11 @@ actor CategoryResolver {
             return [:]
         }
 
-        let lprojDirs: [URL]
-        do {
-            lprojDirs = try fileSystem.listFiles(in: bundleRootURL).filter { $0.pathExtension == "lproj" }
-        } catch {
-            logger.debug("Failed to list bundle root: \(String(describing: error), privacy: .public)")
+        let merged = stringsSource.loadStrings(bundleRootURL: bundleRootURL)
+
+        guard !merged.isEmpty else {
+            // Do not cache an empty result: the strings may become readable later.
             return [:]
-        }
-
-        let selected = selectPreferredLprojDirs(from: lprojDirs)
-        var merged: [String: Set<String>] = [:]
-
-        for lproj in selected {
-            let files: [URL]
-            do {
-                files = try fileSystem.listFiles(in: lproj)
-            } catch {
-                continue
-            }
-
-            for file in files {
-                let name = file.lastPathComponent
-                guard name == "Localizable.strings" || name == "Localizable.nocache.strings" else { continue }
-
-                guard let dict = try? readStringsFile(url: file) else { continue }
-                for (key, value) in dict {
-                    merged[key, default: []].insert(value)
-                }
-            }
         }
 
         cachedStrings = merged
@@ -125,25 +108,57 @@ actor CategoryResolver {
 
     func assetName(for asset: AerialAsset) -> String? {
         let strings = loadAllLocalizedStrings()
+        return resolveAssetName(for: asset, using: strings)
+    }
 
+    /// Resolves display names for many assets while loading the strings bundle only once.
+    ///
+    /// Applies the same fallback chain as `assetName(for:)`:
+    /// `localizedNameKey -> shotID(_NAME) -> id(_NAME) -> accessibilityLabel`.
+    /// Falls back to the asset ID when nothing resolves, so callers always get a usable value.
+    func assetNames(for assets: [AerialAsset]) -> [String: String] {
+        let strings = loadAllLocalizedStrings()
+        var out: [String: String] = [:]
+        out.reserveCapacity(assets.count)
+        for asset in assets {
+            guard !asset.id.isEmpty else { continue }
+            out[asset.id] = resolveAssetName(for: asset, using: strings) ?? asset.id
+        }
+        return out
+    }
+
+    private func resolveAssetName(for asset: AerialAsset, using strings: [String: Set<String>]) -> String? {
         if let key = asset.localizedNameKey, !key.isEmpty,
-           let values = strings[key], !values.isEmpty {
+           let name = bestName(forKeys: [key], in: strings) {
+            return name
+        }
+
+        if let shotID = asset.shotID, !shotID.isEmpty,
+           let name = bestName(forKeys: ["\(shotID)_NAME", shotID], in: strings) {
+            return name
+        }
+
+        if !asset.id.isEmpty,
+           let name = bestName(forKeys: ["\(asset.id)_NAME", asset.id], in: strings) {
+            return name
+        }
+
+        // Last-resort: plain-text label present in newer catalogs (macOS 26+).
+        if let label = asset.accessibilityLabel, !label.isEmpty {
+            return label
+        }
+
+        return nil
+    }
+
+    private func bestName(forKeys keys: [String], in strings: [String: Set<String>]) -> String? {
+        for key in keys {
+            guard let values = strings[key], !values.isEmpty else { continue }
             return values
                 .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
                 .first
         }
-
-        if let shotID = asset.shotID, !shotID.isEmpty {
-            let keysToTry = ["\(shotID)_NAME", shotID]
-            for key in keysToTry {
-                guard let values = strings[key], !values.isEmpty else { continue }
-                return values
-                    .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-                    .first
-            }
-        }
-
-        return assetName(for: asset.id)
+        return nil
     }
 
     /// Resolves excluded category IDs by matching terms against any localized name (substring, case-insensitive) or exact category ID.
@@ -189,49 +204,5 @@ actor CategoryResolver {
         }
 
         return (excluded, debug)
-    }
-
-    private func readStringsFile(url: URL) throws -> [String: String] {
-        let data = try fileSystem.readData(from: url)
-        let any = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
-        if let dict = any as? [String: String] { return dict }
-        if let dict = any as? [String: Any] {
-            var out: [String: String] = [:]
-            for (k, v) in dict {
-                if let s = v as? String { out[k] = s }
-            }
-            return out
-        }
-        return [:]
-    }
-
-    private func selectPreferredLprojDirs(from lprojDirs: [URL]) -> [URL] {
-        // Map: "en_GB.lproj" -> "en_GB"
-        let available: [String: URL] = Dictionary(
-            uniqueKeysWithValues: lprojDirs.compactMap { url in
-                let tag = url.deletingPathExtension().lastPathComponent
-                guard !tag.isEmpty else { return nil }
-                return (tag, url)
-            }
-        )
-
-        let locale = Locale.current
-        let identifier = locale.identifier // e.g. "en_US"
-        let language = locale.language.languageCode?.identifier // e.g. "en"
-
-        var candidates: [String] = []
-        if !identifier.isEmpty { candidates.append(identifier) }
-        if let language, !language.isEmpty { candidates.append(language) }
-        candidates.append("en")
-
-        for tag in candidates {
-            if let exact = available[tag] {
-                return [exact]
-            }
-        }
-
-        // Fallback: if we couldn't match locale tags, load English if present, else load all.
-        if let en = available["en"] { return [en] }
-        return lprojDirs
     }
 }

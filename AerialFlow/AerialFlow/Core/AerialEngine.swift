@@ -133,8 +133,13 @@ struct AerialEngine: Sendable {
     @discardableResult
     func next(settings: any AerialEngineSettings) async throws -> Report {
         let snapshot = try await catalog.loadSnapshot()
-        return try await executeNextPipeline(
+        // Never auto-select non-landscape Aerials (e.g. the portrait "Mac" wallpapers on macOS 26).
+        let landscapeAssets = NonLandscapeAerialFilter().filter(
             assets: snapshot.assets,
+            categories: snapshot.categories
+        )
+        return try await executeNextPipeline(
+            assets: landscapeAssets,
             randomMode: settings.randomMode,
             settings: settings,
             logContext: "Next applied"

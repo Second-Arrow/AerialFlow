@@ -24,6 +24,96 @@ struct CategoryResolverTests {
         return Data(xml.utf8)
     }
 
+    /// Builds a compiled-loctable-shaped plist: `{ locale: { key: value } }`.
+    private func loctableXML(_ byLocale: [String: [String: String]]) -> Data {
+        func esc(_ s: String) -> String {
+            s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+        }
+        var xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+        """
+        for (locale, table) in byLocale.sorted(by: { $0.key < $1.key }) {
+            xml += "<key>\(esc(locale))</key><dict>"
+            for (k, v) in table.sorted(by: { $0.key < $1.key }) {
+                xml += "<key>\(esc(k))</key><string>\(esc(v))</string>"
+            }
+            xml += "</dict>"
+        }
+        xml += "</dict></plist>"
+        return Data(xml.utf8)
+    }
+
+    @Test func testLoadAllLocalizedStrings_readsLoctableFormat() async throws {
+        let fs = InMemoryFileSystem()
+        let bundleRoot = URL(fileURLWithPath: "/Bundle", isDirectory: true)
+        let resources = bundleRoot
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Resources", isDirectory: true)
+        try fs.createDirectory(at: bundleRoot)
+        try fs.createDirectory(at: resources)
+
+        try fs.writeData(
+            loctableXML(["en": ["MAC_WP_PPL_NAME": "Mac Purple"]]),
+            to: resources.appendingPathComponent("Localizable.nocache.loctable"),
+            options: [.atomic]
+        )
+
+        let resolver = CategoryResolver(fileSystem: fs, bundleRootURL: bundleRoot)
+        let name = await resolver.assetName(for: "MAC_WP_PPL")
+        #expect(name == "Mac Purple")
+    }
+
+    @Test func testAssetName_fallsBackToAccessibilityLabel() async throws {
+        let fs = InMemoryFileSystem()
+        let bundleRoot = URL(fileURLWithPath: "/Bundle", isDirectory: true)
+        try fs.createDirectory(at: bundleRoot) // empty bundle -> no strings resolve
+
+        let asset = AerialAsset(
+            id: "64D11DAB-3B57-4F14-AD2F-E59A9282FA44",
+            categories: [],
+            localizedNameKey: "MISSING_NAME",
+            shotID: "MISSING_SHOT",
+            accessibilityLabel: "Tahoe Day",
+            urlVariants: [:]
+        )
+
+        let resolver = CategoryResolver(fileSystem: fs, bundleRootURL: bundleRoot)
+        let name = await resolver.assetName(for: asset)
+        #expect(name == "Tahoe Day")
+    }
+
+    @Test func testAssetNames_bulkAppliesFullFallbackChain() async throws {
+        let fs = InMemoryFileSystem()
+        let bundleRoot = URL(fileURLWithPath: "/Bundle", isDirectory: true)
+        let en = bundleRoot.appendingPathComponent("en.lproj", isDirectory: true)
+        try fs.createDirectory(at: bundleRoot)
+        try fs.createDirectory(at: en)
+
+        try fs.writeData(
+            stringsPlistXML(["NameKeyA": "Via NameKey", "SHOT_B_NAME": "Via ShotID"]),
+            to: en.appendingPathComponent("Localizable.strings"),
+            options: [.atomic]
+        )
+
+        let assets = [
+            AerialAsset(id: "a", categories: [], localizedNameKey: "NameKeyA", urlVariants: [:]),
+            AerialAsset(id: "b", categories: [], shotID: "SHOT_B", urlVariants: [:]),
+            AerialAsset(id: "c", categories: [], accessibilityLabel: "Via Label", urlVariants: [:]),
+            AerialAsset(id: "d", categories: [], urlVariants: [:]),
+        ]
+
+        let resolver = CategoryResolver(fileSystem: fs, bundleRootURL: bundleRoot)
+        let names = await resolver.assetNames(for: assets)
+
+        #expect(names["a"] == "Via NameKey")
+        #expect(names["b"] == "Via ShotID")
+        #expect(names["c"] == "Via Label")
+        #expect(names["d"] == "d") // last-resort: the ID itself
+    }
+
     @Test func testResolveExcludedCategoryIDs_commaSplittingAndSubstringMatch() async throws {
         let fs = InMemoryFileSystem()
         let bundleRoot = URL(fileURLWithPath: "/Bundle", isDirectory: true)

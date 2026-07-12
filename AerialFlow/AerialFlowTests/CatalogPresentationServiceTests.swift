@@ -67,6 +67,33 @@ struct CatalogPresentationServiceTests {
         #expect(subs == Set(["sub1"]))
     }
 
+    @Test func testAssetDisplayNamesByID_usesFullFallbackChain() async throws {
+        let fs = InMemoryFileSystem()
+        let bundleRoot = URL(fileURLWithPath: "/TVIdleScreenStrings.bundle", isDirectory: true)
+        try fs.createDirectory(at: bundleRoot) // empty bundle -> no strings resolve
+
+        let resolver = CategoryResolver(fileSystem: fs, bundleRootURL: bundleRoot)
+
+        // Asset has no resolvable localized name, but does carry an accessibilityLabel.
+        let asset = AerialAsset(
+            id: "mac-1",
+            categories: ["mac-cat"],
+            localizedNameKey: "MAC_WP_PPL_NAME",
+            accessibilityLabel: "Mac Purple",
+            urlVariants: [:]
+        )
+        let snapshot = AerialCatalog.Snapshot(
+            assets: [asset],
+            categories: [],
+            fileURL: URL(fileURLWithPath: "/dev/null"),
+            fileModificationDate: nil
+        )
+        let service = CatalogPresentationService(catalog: FakeCatalog(snapshot: snapshot), resolver: resolver)
+
+        let names = await service.assetDisplayNamesByID(assets: [asset])
+        #expect(names["mac-1"] == "Mac Purple")
+    }
+
     @Test func testFallbacksWhenCatalogLoadFails() async {
         let fs = InMemoryFileSystem()
         let bundleRoot = URL(fileURLWithPath: "/TVIdleScreenStrings.bundle", isDirectory: true)

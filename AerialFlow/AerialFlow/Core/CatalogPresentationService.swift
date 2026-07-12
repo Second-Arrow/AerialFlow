@@ -35,26 +35,10 @@ struct CatalogPresentationService: Sendable {
     }
 
     func assetDisplayNamesByID(assets: [AerialAsset]) async -> [String: String] {
-        let strings = await resolver.loadAllLocalizedStrings()
-
-        var out: [String: String] = [:]
-        out.reserveCapacity(assets.count)
-
-        for asset in assets {
-            guard !asset.id.isEmpty else { continue }
-
-            if let key = asset.localizedNameKey, !key.isEmpty,
-               let values = strings[key], !values.isEmpty {
-                let best = values
-                    .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-                    .first
-                out[asset.id] = best ?? asset.id
-            } else {
-                out[asset.id] = asset.id
-            }
-        }
-
-        return out
+        // Uses the resolver's full fallback chain
+        // (localizedNameKey -> shotID -> id -> accessibilityLabel) so the Exclusions list
+        // matches the names shown in the footer/menu bar.
+        await resolver.assetNames(for: assets)
     }
 
     /// Resolves an asset ID to a human-readable display name.

@@ -11,6 +11,9 @@ struct AerialAsset: Decodable, Hashable, Sendable {
     let subcategories: [String]
     let localizedNameKey: String?
     let shotID: String?
+    /// Plain-text label present in newer catalogs (macOS 26+). Used as a last-resort
+    /// display name when no localized string can be resolved.
+    let accessibilityLabel: String?
     let previewImageURL: URL?
     let urlVariants: [String: URL]
 
@@ -20,6 +23,7 @@ struct AerialAsset: Decodable, Hashable, Sendable {
         case subcategories
         case localizedNameKey
         case shotID
+        case accessibilityLabel
         case previewImage
     }
 
@@ -36,6 +40,7 @@ struct AerialAsset: Decodable, Hashable, Sendable {
         subcategories: [String] = [],
         localizedNameKey: String? = nil,
         shotID: String? = nil,
+        accessibilityLabel: String? = nil,
         previewImageURL: URL? = nil,
         urlVariants: [String: URL]
     ) {
@@ -44,6 +49,7 @@ struct AerialAsset: Decodable, Hashable, Sendable {
         self.subcategories = subcategories
         self.localizedNameKey = localizedNameKey
         self.shotID = shotID
+        self.accessibilityLabel = accessibilityLabel
         self.previewImageURL = previewImageURL
         self.urlVariants = urlVariants
     }
@@ -57,6 +63,7 @@ struct AerialAsset: Decodable, Hashable, Sendable {
         self.subcategories = (try? known.decode([String].self, forKey: .subcategories)) ?? []
         self.localizedNameKey = try? known.decode(String.self, forKey: .localizedNameKey)
         self.shotID = try? known.decode(String.self, forKey: .shotID)
+        self.accessibilityLabel = try? known.decode(String.self, forKey: .accessibilityLabel)
         if let urlString = try? known.decode(String.self, forKey: .previewImage) {
             self.previewImageURL = URL(string: urlString)
         } else if let url = try? known.decode(URL.self, forKey: .previewImage) {

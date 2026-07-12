@@ -23,8 +23,12 @@ struct ExclusionsSettingsPane: View {
             }
 
             if let snapshot = catalogSnapshot {
-                let mainCategories = AerialCategory.uniqueMainCategories(snapshot.categories)
-                let rows = ExclusionRow.rows(fromMainCategories: mainCategories, assets: snapshot.assets)
+                // Hide non-landscape Aerials (e.g. the "Mac" wallpapers) here too, matching selection.
+                let filter = NonLandscapeAerialFilter()
+                let visibleCategories = filter.filter(categories: snapshot.categories)
+                let visibleAssets = filter.filter(assets: snapshot.assets, categories: snapshot.categories)
+                let mainCategories = AerialCategory.uniqueMainCategories(visibleCategories)
+                let rows = ExclusionRow.rows(fromMainCategories: mainCategories, assets: visibleAssets)
 
                 let viewModel = ExclusionPickerViewModel(
                     rows: rows,

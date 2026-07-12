@@ -407,6 +407,62 @@ struct AerialEngineTests {
         #expect(events.isEmpty)
     }
 
+    @Test func testNext_neverPicksNonLandscapeMacAssets() async throws {
+        let recorder = Recorder()
+        // Current is the only landscape asset, so a naive picker would advance to the Mac asset.
+        let state = FakeEngineStateStore(lastAssetID: "landscape")
+
+        let assets = [
+            AerialAsset(id: "landscape", categories: ["landscape-cat"], urlVariants: ["url-4K": URL(string: "https://example.com/landscape.mov")!]),
+            AerialAsset(id: "mac", categories: ["mac-cat"], subcategories: ["mac-sub"], urlVariants: ["url-4K": URL(string: "https://example.com/mac.mov")!]),
+        ]
+        let categories = [
+            AerialCategory(id: "landscape-cat", localizedNameKey: "AerialCategoryLandscapes"),
+            AerialCategory(
+                id: "mac-cat",
+                localizedNameKey: "AerialCategoryMac",
+                subcategories: [AerialCategory(id: "mac-sub", localizedNameKey: "AerialSubcategoryDescriptionMac")]
+            ),
+        ]
+        let snapshot = AerialCatalog.Snapshot(
+            assets: assets,
+            categories: categories,
+            fileURL: URL(fileURLWithPath: "/dev/null"),
+            fileModificationDate: nil
+        )
+
+        let engine = AerialEngine(
+            catalog: FakeCatalog(snapshot: snapshot),
+            picker: AssetPicker(),
+            urlSelector: FakeURLSelector(recorder: recorder, url: URL(string: "https://example.com/landscape.mov")!),
+            downloader: FakeDownloader(recorder: recorder),
+            brightnessStore: NoopBrightnessStore(),
+            storeEditor: FakeStoreEditor(recorder: recorder),
+            reloader: FakeReloader(recorder: recorder),
+            stateStore: state,
+            now: { Date(timeIntervalSince1970: 1) }
+        )
+
+        let report = try await engine.next(
+            settings: Settings(
+                excludedCategoryIDs: [],
+                excludedSubcategoryIDs: [],
+                excludedAssetIDs: [],
+                randomMode: false,
+                downloadTimeout: 5,
+                indexPlistURL: URL(fileURLWithPath: "/Users/test/Index.plist"),
+                backupRetentionCount: 10,
+                isLightSensitiveFilteringEnabled: false,
+                allowedLightStartMinutes: 10 * 60,
+                allowedLightEndMinutes: 18 * 60,
+                lightSensitivity: 0.5
+            )
+        )
+
+        // Only the landscape asset is eligible; it wraps back to itself rather than picking "mac".
+        #expect(report.chosenAssetID == "landscape")
+    }
+
     @Test func testNextInSubcategory_filtersAssetsAndForcesNonRandomPick() async throws {
         let recorder = Recorder()
         let state = FakeEngineStateStore(lastAssetID: "b")
